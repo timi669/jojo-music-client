@@ -1,4 +1,4 @@
-# Vibe Music Client 🎵
+# JOJO Music Client 🎵
 
 ## 介绍 📖
 
