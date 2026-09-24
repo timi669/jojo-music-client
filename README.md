@@ -2,7 +2,7 @@
 
 ## 介绍 📖
 
-**Vibe Music Client** 是一款基于 **Vue 3**、**Vite 5**、**Pinia**、**Tailwind
+**JOJO Music Client** 是一款基于 **Vue 3**、**Vite 5**、**Pinia**、**Tailwind
 CSS** 和 **Element Plus**
 开发的现代化 Web 音乐播放器。本项目旨在提供美观、流畅且功能丰富的音乐播放体验，后端服务由
 **Vibe Music Server** 提供支持。
