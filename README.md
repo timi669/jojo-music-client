@@ -1,196 +1,143 @@
+<<<<<<< HEAD
 # JOJO Music Client 🎵
+=======
+# JOJO MUSIC Client 🎵
+>>>>>>> e03be03 (feat: refresh project identity and README)
 
-## 介绍 📖
+## 项目简介
 
+<<<<<<< HEAD
 **JOJO Music Client** 是一款基于 **Vue 3**、**Vite 5**、**Pinia**、**Tailwind
 CSS** 和 **Element Plus**
 开发的现代化 Web 音乐播放器。本项目旨在提供美观、流畅且功能丰富的音乐播放体验，后端服务由
 **Vibe Music Server** 提供支持。
+=======
+**JOJO MUSIC Client** 是 JOJO MUSIC 的前端音乐播放器端，提供在线音乐浏览、搜索、播放和用户个性化体验。
+>>>>>>> e03be03 (feat: refresh project identity and README)
 
-_（本项目界面设计借鉴了
-[KMMusicPlayer/GlassMusicPlayer](https://github.com/XiangZi7/GlassMusicPlayer)
-开源项目）_
+本项目基于 **Vue 3 + Vite + TypeScript + Pinia + Tailwind CSS + Element Plus** 构建，聚焦于音乐播放、推荐、歌单和用户互动体验。
 
-## 主要特性 ✨
+## 主要功能
 
-本项目根据用户角色提供不同的功能：
+### 游客用户
 
-### 游客 (未登录)
+- 浏览音乐、歌手、歌单
+- 搜索音乐并进行基础播放
+- 夜间模式切换
 
-- **浏览音乐内容**: 可以浏览歌曲、歌手、歌单等。
-- **音乐搜索与播放**: 可以通过关键词搜索音乐，并进行播放操作（支持核心播放控制）。
-- **界面**: 支持暗黑模式切换。
+### 登录用户
 
-### 用户 (需注册/登录)
+- 注册、登录、退出
+- 编辑个人资料与头像
+- 收藏歌曲和歌单
+- 查看推荐内容
+- 留言和评论互动
+- 下载与播放控制
 
-- **包含游客所有功能**
-- **用户认证**: 提供注册、登录、注销功能。
-- **个人信息管理**: 编辑个人资料（如昵称、简介）并更换头像。
-- **个性化推荐**: 基于用户的听歌历史和偏好，获取个性化音乐推荐。
-- **评论与互动**: 对歌曲、歌单发表评论，并可以点赞。
-- **内容管理**: 收藏喜爱的歌曲和歌单。
-- **歌曲下载**: 支持将歌曲下载到本地。
+## 技术栈
 
-## 技术栈 🛠️
+- Vue 3
+- Vite
+- TypeScript
+- Pinia
+- Element Plus
+- Tailwind CSS
 
-- **前端框架**: [Vue 3](https://vuejs.org/)
-- **构建工具**: [Vite 5](https://vitejs.dev/)
-- **状态管理**: [Pinia](https://pinia.vuejs.org/)
-- **UI 库**: [Element Plus](https://element-plus.org/)
-- **CSS 框架**: [Tailwind CSS](https://tailwindcss.com/)
-- **语言**: TypeScript
+## 系统要求
 
-## 系统需求 ⚙️
+- Node.js >= 18
+- pnpm >= 7
 
-- **Node.js**: `>=18.12.0`
-- **pnpm**: `>=7`
+## 仓库地址
 
-## 代码仓库 ⭐
+- GitHub: https://github.com/timi669/jojo-music-client
+- Admin: https://github.com/timi669/jojo-music-admin
+- Server: https://github.com/timi669/jojo-music-server
 
-- [GitHub 代码仓库](https://github.com/Alex-LiSun/vibe-music-client)
+## 安装与运行
 
-## 安装与启动 🚀
+1. 克隆项目
 
-1.  **克隆项目**
+   ```bash
+   git clone https://github.com/timi669/jojo-music-client.git
+   cd jojo-music-client
+   ```
 
-    ```bash
-    git clone https://github.com/Alex-LiSun/vibe-music-client.git
-    cd vibe-music-client
-    ```
+2. 安装依赖
 
-2.  **安装依赖** (推荐使用 `pnpm`)
+   ```bash
+   pnpm install
+   ```
 
-    ```bash
-    pnpm install
-    ```
+3. 配置环境变量
 
-3.  **配置环境变量**
+   - 复制 `.env.development` 文件并修改为本地实际配置
+   - 配置 `VITE_APP_BASE_API` 为 JOJO MUSIC Server 的地址
 
-    - 复制 `.env.development` 文件并重命名为 `.env.development.local`
-      (推荐) 或直接修改 `.env.development`。
-    - 修改文件中的 `VITE_APP_BASE_API` 为你本地运行或部署的 **Vibe Music
-      Server** 后端服务地址。
+   ```env
+   VITE_APP_BASE_API=http://localhost:8080
+   ```
 
-    ```env
-    # .env.development.local
+4. 启动开发服务器
 
-    # Vibe Music Server API 地址 (示例)
-    # 请确保替换为你的实际后端服务地址和端口
-    VITE_APP_BASE_API = 'http://localhost:8080'
-    ```
+   ```bash
+   pnpm dev
+   ```
 
-    - **注意**: 启动前端应用前，请确保你的 `Vibe Music Server`
-      后端服务已经成功配置、启动并正在运行。
+5. 构建生产版本
 
-4.  **启动开发服务器**
+   ```bash
+   pnpm build
+   ```
 
-    ```bash
-    pnpm dev
-    ```
+6. 预览构建结果
 
-    启动后，访问浏览器中显示的本地地址即可。
+   ```bash
+   pnpm preview
+   ```
 
-5.  **构建项目**
+## 项目脚本
 
-    ```bash
-    # 构建生产环境
-    pnpm build
+- `pnpm dev`：启动开发服务器
+- `pnpm build`：生产环境构建
+- `pnpm preview`：本地预览
+- `pnpm lint`：检查代码规范
+- `pnpm format`：格式化代码
+- `pnpm type-check`：TypeScript 类型检查
 
-    # 构建测试环境
-    pnpm build:test
-    ```
+## 项目截图
 
-6.  **预览构建结果**
+![登录界面](./img/client_login.png)
+![推荐界面](./img/client_home.png)
+![歌曲推荐界面](./img/client_recommended.png)
+![曲库界面](./img/client_song_library.png)
+![歌手列表界面](./img/client_artist.png)
+![歌手详情界面](./img/client_artist_detail.png)
+![歌单列表界面](./img/client_playlist.png)
+![歌单详情界面](./img/client_playlist_detail.png)
+![歌单评论界面](./img/client_playlist_comment.png)
+![我的喜欢界面](./img/client_favourite.png)
+![歌曲播放界面](./img/client_song_play.png)
+![个人中心界面](./img/client_profile.png)
 
-    ```bash
-    # 预览生产环境构建
-    pnpm preview
+## 后端依赖
 
-    # 预览测试环境构建
-    pnpm preview:test
-    ```
+本项目依赖 JOJO MUSIC Server 提供 API 与数据支持。
 
-## 项目脚本 📜
+- 后端仓库：https://github.com/timi669/jojo-music-server
 
-- `pnpm dev`: 启动开发服务器。
-- `pnpm build`: 构建生产版本。
-- `pnpm preview`: 本地预览生产版本。
-- `pnpm build:test`: 构建测试版本。
-- `pnpm preview:test`: 本地预览测试版本。
-- `pnpm lint`: 使用 ESLint 检查代码规范。
-- `pnpm lint:fix`: 使用 ESLint 自动修复代码规范问题。
-- `pnpm format`: 使用 Prettier 格式化代码。
-- `pnpm type-check`: 使用 vue-tsc 进行 TypeScript 类型检查。
+## 版权与免责声明
 
-## 项目演示 📺
+本项目仅供学习、研究和个人开发实践使用。
 
-视频地址：[https://www.bilibili.com/video/BV1tKJ8z8E6z/]
+- 请勿用于侵权、违法或商业用途
+- 你必须确保内容来源、资源授权和部署环境合法合规
+- 因使用本项目产生的后果由使用者自行承担
 
-## 项目截图 📷
+## 许可证
 
-![登录界面](https://github.com/Alex-LiSun/vibe-music-client/blob/main/img/client_login.png)
-![推荐界面](https://github.com/Alex-LiSun/vibe-music-client/blob/main/img/client_home.png)
-![歌曲推荐界面](https://github.com/Alex-LiSun/vibe-music-client/blob/main/img/client_recommended.png)
-![曲库界面](https://github.com/Alex-LiSun/vibe-music-client/blob/main/img/client_song_library.png)
-![歌手列表界面](https://github.com/Alex-LiSun/vibe-music-client/blob/main/img/client_artist.png)
-![歌手详情界面](https://github.com/Alex-LiSun/vibe-music-client/blob/main/img/client_artist_detail.png)
-![歌单列表界面](https://github.com/Alex-LiSun/vibe-music-client/blob/main/img/client_playlist.png)
-![歌单详情界面](https://github.com/Alex-LiSun/vibe-music-client/blob/main/img/client_playlist_detail.png)
-![歌单评论界面](https://github.com/Alex-LiSun/vibe-music-client/blob/main/img/client_playlist_comment.png)
-![我的喜欢界面](https://github.com/Alex-LiSun/vibe-music-client/blob/main/img/client_favourite.png)
-![歌曲播放界面](https://github.com/Alex-LiSun/vibe-music-client/blob/main/img/client_song_play.png)
-![个人中心界面](https://github.com/Alex-LiSun/vibe-music-client/blob/main/img/client_profile.png)
+本项目遵循 MIT 许可证，详情请查看 [LICENSE](LICENSE)。
 
-## 项目后台接口 🧩
+## 贡献
 
-本项目的前端界面依赖自建的后端服务 **Vibe Music Server**
-来提供所有的业务逻辑和数据接口。
-
-- 请确保你已经按照 **Vibe Music Server**
-  项目的说明文档成功部署并运行了后端服务。
-- 后端仓库地址: [https://github.com/Alex-LiSun/vibe-music-server]
-
-## 免责声明 ⚠️
-
-**Vibe Music Client**
-项目仅供学习和技术研究使用。应用内展示的所有音乐内容、用户数据等均由您自行部署和管理的
-**Vibe Music Server**
-后端服务提供。请在遵守相关国家和地区的法律法规以及版权政策的前提下使用。
-
-- **请勿用于任何商业用途。**
-- 对于因使用本项目（包括其依赖的 **Vibe Music Server**
-  后端服务）而可能产生的任何直接或间接问题、数据安全风险、版权纠纷或经济损失，项目作者不承担任何责任。
-- 用户需自行承担所有使用风险，包括确保后端服务的数据来源合法合规。
-
-在您使用本软件前，请仔细阅读并理解本免责声明。继续使用即表示您同意本声明的所有条款。
-
-## 许可证 📄
-
-本项目采用 MIT 许可证 - 查看 [LICENSE](LICENSE) 文件了解详情
-
-## 贡献 ❤️
-
-欢迎各种形式的贡献，包括提交 Issue、Pull Request 或提出建议！
-
-## 常见问题 (FAQ) ❓
-
-- **启动时遇到错误怎么办？**
-
-  - 请确保您的 Node.js 和 pnpm 版本满足 [系统需求](#系统需求-⚙️)。
-  - 检查 `pnpm install` 过程中是否有报错信息。
-  - 确认 `.env.development.local` 或 `.env.development` 中的 `VITE_APP_BASE_API`
-    配置是否正确，并且对应的后端 API 服务已成功运行。
-
-- **如何切换主题？**
-
-  - 通常在应用的设置或侧边栏菜单中可以找到主题切换选项（例如亮色/暗色模式）。请根据应用内的指引操作。
-
-- **API 无法访问？**
-  - 首先确认你的 **Vibe Music Server**
-    后端服务是否已经按照其文档正确启动，并且正在运行。
-  - 检查你在 `.env.development.local` 或 `.env.development` 文件中配置的
-    `VITE_APP_BASE_API` 地址和端口是否与后端服务实际监听的地址和端口一致。
-  - 检查浏览器开发者工具的网络(Network)选项卡，看看前端发起的 API 请求是否收到了正确的响应，或者是否有 CORS
-    (跨域资源共享) 相关的错误。
-  - 检查操作系统的防火墙或任何网络代理设置，确保没有阻止从前端到后端的网络连接。
-  - 查阅 **Vibe Music Server** 的运行日志，寻找可能的错误信息。
+欢迎提交 Issue、Pull Request 和改进建议。
