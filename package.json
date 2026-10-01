@@ -1,12 +1,12 @@
 {
-  "name": "JOJO-music-client",
+  "name": "jojo-music-client",
   "private": true,
   "version": "1.0.0",
   "type": "module",
-  "description": "JOJO Music",
+  "description": "JOJO MUSIC Client",
   "author": {
-    "name": "Alex LiSun",
-    "email": "vibe_music_service@163.com"
+    "name": "timi669",
+    "email": "19491001zxgw@gmail.com"
   },
   "scripts": {
     "dev": "vite",
