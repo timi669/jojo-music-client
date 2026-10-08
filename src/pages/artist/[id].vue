@@ -4,6 +4,7 @@ import Table from '@/components/Table.vue'
 import { useArtistStore } from '@/stores/modules/artist'
 import { ElMessage } from 'element-plus'
 import { useRoute } from 'vue-router'
+import defaultArtistAvatar from '@/assets/user.jpg'
 
 interface ArtistDetailResponse {
     artistId: number
@@ -33,7 +34,7 @@ const fetchArtistDetail = async () => {
             artistStore.setArtistInfo({
                 artistId: artistData.artistId,
                 artistName: artistData.artistName || '未知歌手',
-                avatar: artistData.avatar || '',
+                avatar: artistData.avatar || defaultArtistAvatar,
                 birth: artistData.birth || '',
                 area: artistData.area || '未知',
                 introduction: artistData.introduction || '暂无简介',
