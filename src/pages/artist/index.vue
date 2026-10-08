@@ -26,6 +26,21 @@ const state = reactive({
 
 const searchKeyword = ref('')
 
+const formatArea = (area: string | null) => {
+  if (!area) return ''
+  const labels: Record<string, string> = {
+    China: '中国',
+    'United States': '美国',
+    Canada: '加拿大',
+    Taiwan: '中国台湾',
+    'South Korea': '韩国',
+    Japan: '日本',
+    Brazil: '巴西',
+    Chongqing: '重庆',
+  }
+  return labels[area] || area
+}
+
 // 切换菜单显示
 const toggleMenu = (index: number) => {
   categories.value[index].isOpen = !categories.value[index].isOpen
@@ -56,21 +71,24 @@ const handleGetArtistList = () => {
   const params = {
     pageNum: currentPage.value,
     pageSize: pageSize.value,
-    name: null,
+    artistName: null,
     gender: selectedGender.value === '-1' ? null : categories.value[0].subCategories.find(item => item.id === selectedGender.value)?.value,
     area: selectedArea.value === '-1' ? null : categories.value[1].subCategories.find(item => item.id === selectedArea.value)?.value
   }
 
   getAllArtists(params).then((res) => {
     if (res.code === 0 && res.data) {
-      artistList.value = res.data.items.map(item => ({
+      const items = res.data.items || []
+      artistList.value = items.map(item => ({
         artistId: item.artistId,
         name: item.artistName,
         picUrl: item.avatar || defaultArtistAvatar,
+        area: formatArea(item.area),
+        gender: item.gender,
         alias: []
       }))
-      total.value = res.data.total
-      state.total = res.data.total
+      total.value = res.data.total || 0
+      state.total = res.data.total || 0
     } else {
       ElNotification({
         type: 'error',
@@ -92,14 +110,17 @@ const handleSearch = () => {
 
   getAllArtists(params).then((res) => {
     if (res.code === 0 && res.data) {
-      artistList.value = res.data.items.map(item => ({
+      const items = res.data.items || []
+      artistList.value = items.map(item => ({
         artistId: item.artistId,
         name: item.artistName,
-picUrl: item.avatar || defaultArtistAvatar,
+        picUrl: item.avatar || defaultArtistAvatar,
+        area: formatArea(item.area),
+        gender: item.gender,
         alias: []
       }))
-      total.value = res.data.total
-      state.total = res.data.total
+      total.value = res.data.total || 0
+      state.total = res.data.total || 0
     } else {
       ElNotification({
         type: 'error',

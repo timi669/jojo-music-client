@@ -10,7 +10,7 @@ import { UserStore } from '@/stores/modules/user'
 import { ElMessage } from 'element-plus'
 
 const instance: AxiosInstance = axios.create({
-  baseURL: 'http://localhost:8080', // 设置为后端服务地址
+  baseURL: import.meta.env.VITE_APP_BASE_API || 'http://localhost:8080',
   timeout: 20000, // 设置超时时间 20秒
   headers: {
     Accept: 'application/json, text/plain, */*',

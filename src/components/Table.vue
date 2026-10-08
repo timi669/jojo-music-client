@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { Song } from '@/api/interface'
-import { PropType, watch } from 'vue'
+import { PropType, reactive, watch } from 'vue'
 import { formatMillisecondsToTime } from '@/utils'
 import default_album from '@/assets/default_album.jpg'
 import { collectSong, cancelCollectSong } from '@/api/system'
@@ -17,6 +17,19 @@ const props = defineProps({
     default: () => [],
   },
 })
+
+const failedCoverSongIds = reactive(new Set<number>())
+
+const getCoverUrl = (song: Song) => {
+  if (!song.coverUrl || failedCoverSongIds.has(song.songId)) {
+    return default_album
+  }
+  return song.coverUrl
+}
+
+const handleCoverError = (songId: number) => {
+  failedCoverSongIds.add(songId)
+}
 
 // 监听数据变化，更新当前页面的歌曲列表
 watch(() => props.data, (newData) => {
@@ -150,10 +163,9 @@ const isCurrentPlaying = (songId: number) => {
     " class="!rounded-lg !h-full transition duration-300">
     <el-table-column>
       <template #header>
-        <div class="grid grid-cols-[auto_4fr_3fr_3fr_1fr_2fr_1fr] items-center gap-6 w-full text-left mt-2">
-          <div class="ml-3">标题</div>
-          <div class="w-12"></div>
-          <div class="ml-1">歌手</div>
+        <div class="grid grid-cols-[40px_minmax(0,4fr)_minmax(0,3fr)_minmax(0,3fr)_40px_80px_40px] items-center gap-6 w-full text-left mt-2">
+          <div class="col-span-2 ml-3">标题</div>
+          <div>歌手</div>
           <div>专辑</div>
           <div>喜欢</div>
           <div class="ml-7">时长</div>
@@ -162,15 +174,15 @@ const isCurrentPlaying = (songId: number) => {
       </template>
       <template #default="{ row }">
         <div
-          class="grid grid-cols-[auto_4fr_3fr_3fr_1fr_2fr_1fr] items-center gap-6 w-full group transition duration-300 rounded-2xl p-2"
+          class="grid grid-cols-[40px_minmax(0,4fr)_minmax(0,3fr)_minmax(0,3fr)_40px_80px_40px] items-center gap-6 w-full group transition duration-300 rounded-2xl p-2"
           :class="[
             isCurrentPlaying(row.songId) ? 'bg-[hsl(var(--hover-menu-bg))]' : 'hover:bg-[hsl(var(--hover-menu-bg))]',
             'cursor-pointer'
           ]"
           @click="handlePlay(row)">
           <!-- 标题和封面 -->
-          <div class="w-10 h-10 relative" v-if="row.coverUrl">
-            <el-image :src="row.coverUrl" fit="cover" lazy :alt="row.songName" class="w-full h-full rounded-md" />
+          <div class="w-10 h-10 relative">
+            <el-image :src="getCoverUrl(row)" fit="cover" lazy :alt="row.songName" class="w-full h-full rounded-md" @error="handleCoverError(row.songId)" />
             <!-- Play 按钮，使用 group-hover 控制透明度 -->
             <div
               class="absolute inset-0 flex items-center justify-center text-white opacity-0 transition-opacity duration-300 z-10 group-hover:opacity-100 group-hover:bg-black/50 rounded-md">
@@ -179,17 +191,17 @@ const isCurrentPlaying = (songId: number) => {
           </div>
 
           <!-- 歌曲名称 -->
-          <div class="text-left">
-            <div class="flex-1 line-clamp-1">{{ row.songName }}</div>
+          <div class="min-w-0 text-left">
+            <div class="song-cell-text">{{ row.songName }}</div>
           </div>
 
           <!-- 歌手 -->
-          <div class="text-left">
-            <div class="line-clamp-1 w-48">{{ row.artistName }}</div>
+          <div class="min-w-0 text-left">
+            <div class="song-cell-text">{{ row.artistName }}</div>
           </div>
 
           <!-- 专辑 -->
-          <div class="text-left">{{ row.album }}</div>
+          <div class="song-cell-text text-left">{{ row.album }}</div>
 
           <!-- 喜欢 -->
           <div class="flex items-center ml-1">
@@ -217,6 +229,13 @@ const isCurrentPlaying = (songId: number) => {
 </template>
 
 <style scoped>
+.song-cell-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 :deep(.el-table__row) {
   background: transparent !important;
 }
