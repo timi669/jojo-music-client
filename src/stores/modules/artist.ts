@@ -6,6 +6,7 @@ interface ArtistInfo {
   artistName: string
   avatar: string
   birth: string
+  gender: number | null
   area: string
   introduction: string
   songs: Song[]
@@ -16,7 +17,7 @@ export const useArtistStore = defineStore('ArtistStore', {
     artistInfo: null as ArtistInfo | null,
   }),
   actions: {
-    setArtistInfo(info: ArtistInfo) {
+    setArtistInfo(info: ArtistInfo | null) {
       this.artistInfo = info
     },
   },

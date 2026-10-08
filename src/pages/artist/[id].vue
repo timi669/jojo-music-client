@@ -10,6 +10,7 @@ interface ArtistDetailResponse {
     artistId: number
     artistName: string
     avatar: string
+    gender: number | null
     birth: string
     area: string
     introduction: string
@@ -35,6 +36,7 @@ const fetchArtistDetail = async () => {
                 artistId: artistData.artistId,
                 artistName: artistData.artistName || '未知歌手',
                 avatar: artistData.avatar || defaultArtistAvatar,
+                gender: artistData.gender ?? null,
                 birth: artistData.birth || '',
                 area: artistData.area || '未知',
                 introduction: artistData.introduction || '暂无简介',
@@ -62,6 +64,26 @@ const formatBirth = (birth: string) => {
     if (!birth) return ''
     return new Date(birth).toLocaleDateString()
 }
+
+const formatGender = (gender: number | null) => {
+    if (gender === 0) return '男歌手'
+    if (gender === 1) return '女歌手'
+    if (gender === 2) return '组合/乐队'
+    return '未分类'
+}
+
+const areaLabels: Record<string, string> = {
+    China: '中国',
+    'United States': '美国',
+    Canada: '加拿大',
+    Taiwan: '中国台湾',
+    'South Korea': '韩国',
+    Japan: '日本',
+    Brazil: '巴西',
+    Chongqing: '重庆',
+}
+
+const formatArea = (area: string) => areaLabels[area] || area
 </script>
 
 <template>
@@ -76,8 +98,9 @@ const formatBirth = (birth: string) => {
                     {{ artistInfo?.artistName }}
                 </h1>
                 <div class="mt-4 space-y-2 text-sm text-muted-foreground">
+                    <p v-if="artistInfo">类型：{{ formatGender(artistInfo.gender) }}</p>
                     <p v-if="artistInfo?.birth">生日：{{ formatBirth(artistInfo.birth) }}</p>
-                    <p v-if="artistInfo?.area">地区：{{ artistInfo.area }}</p>
+                    <p v-if="artistInfo?.area">地区：{{ formatArea(artistInfo.area) }}</p>
                     <p v-if="artistInfo?.introduction" class="mt-2 line-clamp-4">简介：{{ artistInfo.introduction }}
                     </p>
                 </div>

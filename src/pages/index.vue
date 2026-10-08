@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { getRecommendedPlaylists, getRecommendedSongs, getBanner } from '@/api/system'
 import coverImg from '@/assets/cover.png'
+import defaultAlbumCover from '@/assets/default_album.jpg'
 import { formatTime, replaceUrlParams } from '@/utils'
 import { ElNotification } from 'element-plus'
 import { UserStore } from '@/stores/modules/user'
@@ -16,6 +17,19 @@ const bannerList = ref<{ bannerId: number; bannerUrl: string }[]>([])
 const recommendedPlaylist = ref([])
 // 推荐歌曲
 const recommendedSongList = ref([])
+const failedRecommendedCoverIds = reactive(new Set<number>())
+
+const getRecommendedSongCover = (item: any) => {
+  const coverUrl = item.album?.picUrl
+  if (!coverUrl || failedRecommendedCoverIds.has(item.id)) {
+    return defaultAlbumCover
+  }
+  return replaceUrlParams(coverUrl, 'param=90y90')
+}
+
+const handleRecommendedCoverError = (songId: number) => {
+  failedRecommendedCoverIds.add(songId)
+}
 
 // 监听用户登录状态
 watch(
@@ -210,7 +224,7 @@ const isCurrentPlaying = (songId: number) => {
               <!-- 专辑封面 -->
               <div class="w-16 h-16 rounded-2xl overflow-hidden relative">
                 <el-image :alt="item.name" width="64" height="64" class="w-full h-full object-cover"
-                  :src="item.album.picUrl + '?param=90y90'" />
+                  :src="getRecommendedSongCover(item)" @error="handleRecommendedCoverError(item.id)" />
                 <!-- Play 按钮，使用 group-hover 控制透明度 -->
                 <button @click.stop="handlePlaylclick(item)"
                   class="absolute inset-0 flex items-center justify-center text-white opacity-0 transition-opacity duration-300 z-10 group-hover:opacity-100 group-hover:bg-black/50">
