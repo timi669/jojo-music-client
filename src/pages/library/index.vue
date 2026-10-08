@@ -39,7 +39,7 @@ const getSongs = () => {
     getAllSongs({
         pageNum: currentPage.value,
         pageSize: pageSize.value,
-        keyword: (route.query.query as string || '').trim(),
+keyword: (route.query.query as string || '').trim(),
     }).then((res) => {
         if (res.code === 0 && res.data) {
             libraryStore.setTableData(res.data)
