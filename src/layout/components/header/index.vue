@@ -64,7 +64,7 @@ watch(
           type="text"
           class="mt-0.5 w-64 text-sm pl-8 pr-2 py-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary transition-all duration-300 focus:w-80 search-bg"
           placeholder="搜索..."
-          @keyup.enter="router.push('/library?query=' + searchText)"
+          @keyup.enter="router.push({ path: '/library', query: { query: searchText.trim() } })"
         />
       </div>
       <button @click="toggleMode">

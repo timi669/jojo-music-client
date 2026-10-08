@@ -2,6 +2,7 @@
 import { categories } from '@/utils/enum'
 import { getAllArtists } from '@/api/system'
 import { ElNotification } from 'element-plus'
+import defaultArtistAvatar from '@/assets/user.jpg'
 
 const router = useRouter()
 const artistList = ref([])
@@ -65,7 +66,7 @@ const handleGetArtistList = () => {
       artistList.value = res.data.items.map(item => ({
         artistId: item.artistId,
         name: item.artistName,
-        picUrl: item.avatar,
+        picUrl: item.avatar || defaultArtistAvatar,
         alias: []
       }))
       total.value = res.data.total
@@ -94,7 +95,7 @@ const handleSearch = () => {
       artistList.value = res.data.items.map(item => ({
         artistId: item.artistId,
         name: item.artistName,
-        picUrl: item.avatar,
+        picUrl: item.avatar || defaultArtistAvatar,
         alias: []
       }))
       total.value = res.data.total
@@ -192,7 +193,7 @@ onMounted(() => {
                 <div class="w-full h-full relative">
                   <el-image lazy :alt="artist.name"
                     class="h-full w-full object-cover transition-transform duration-300 ease-out group-hover:scale-110"
-                    :src="artist.picUrl + '?param=230y230'" />
+                    :src="artist.picUrl + (artist.picUrl.startsWith('http') ? '?param=230y230' : '')" />
                   <div
                     class="absolute inset-0 bg-black/40 opacity-0 transition-opacity duration-300 group-hover:opacity-100">
                   </div>
