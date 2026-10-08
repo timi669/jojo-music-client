@@ -1,19 +1,10 @@
-<<<<<<< HEAD
 # JOJO Music Client 🎵
-=======
-# JOJO MUSIC Client 🎵
->>>>>>> e03be03 (feat: refresh project identity and README)
 
 ## 项目简介
 
-<<<<<<< HEAD
-**JOJO Music Client** 是一款基于 **Vue 3**、**Vite 5**、**Pinia**、**Tailwind
-CSS** 和 **Element Plus**
+**JOJO Music Client** 是一款基于 **Vue 3**、**Vite 5**、**Pinia**、**Tailwind CSS** 和 **Element Plus**
 开发的现代化 Web 音乐播放器。本项目旨在提供美观、流畅且功能丰富的音乐播放体验，后端服务由
-**Vibe Music Server** 提供支持。
-=======
-**JOJO MUSIC Client** 是 JOJO MUSIC 的前端音乐播放器端，提供在线音乐浏览、搜索、播放和用户个性化体验。
->>>>>>> e03be03 (feat: refresh project identity and README)
+**JOJO MUSIC Server** 提供支持。
 
 本项目基于 **Vue 3 + Vite + TypeScript + Pinia + Tailwind CSS + Element Plus** 构建，聚焦于音乐播放、推荐、歌单和用户互动体验。
 
