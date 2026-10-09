@@ -12,6 +12,7 @@ const props = defineProps({
     },
 })
 const tableData = computed(() => libraryStore.tableData)
+const searchKeyword = computed(() => (route.query.query as string || '').trim())
 
 const currentPage = ref(1) // 当前页
 const pageSize = ref(20) // 每页显示的数量
@@ -39,7 +40,7 @@ const getSongs = () => {
     getAllSongs({
         pageNum: currentPage.value,
         pageSize: pageSize.value,
-keyword: (route.query.query as string || '').trim(),
+        keyword: searchKeyword.value,
     }).then((res) => {
         if (res.code === 0 && res.data) {
             libraryStore.setTableData(res.data)
@@ -62,6 +63,14 @@ watch(
 
 <template>
     <div class="flex-1 h-full flex flex-col overflow-hidden">
+        <div class="px-4 pt-3 text-sm text-muted-foreground" aria-live="polite">
+            <template v-if="searchKeyword">
+                搜索“{{ searchKeyword }}”，共 {{ state.total }} 条结果
+            </template>
+            <template v-else>
+                共 {{ state.total }} 首歌曲
+            </template>
+        </div>
         <Table :data="tableData?.items" class="flex-1 overflow-x-hidden" />
         <nav class="mx-auto flex w-full justify-center mt-3">
             <el-pagination v-model:page-size="pageSize" v-model:currentPage="currentPage" v-bind="state"
