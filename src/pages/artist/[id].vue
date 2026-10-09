@@ -109,7 +109,12 @@ const formatArea = (area: string) => areaLabels[area] || area
 
         <!-- 歌曲列表 -->
         <div class="mt-12 flex flex-col flex-1">
-            <h2 class="text-2xl font-semibold text-foreground mb-6">所有歌曲</h2>
+            <div class="mb-6 flex items-center justify-between">
+                <h2 class="text-2xl font-semibold text-foreground">所有歌曲</h2>
+                <span class="text-sm text-muted-foreground">
+                    共 {{ artistInfo?.songs.length ?? 0 }} 首
+                </span>
+            </div>
             <div class="w-full h-full flex">
                 <Table :data="artistInfo?.songs" />
             </div>
