@@ -66,22 +66,31 @@ export const UserStore = defineStore('UserStore', {
         const response = await login(loginData)
 
         if (response.code === 0) {
-          // 先保存token
           const token = response.data
-          
-          // 设置token到userInfo
+
+          if (typeof token !== 'string' || !token.trim()) {
+            return { success: false, message: '登录响应无效，请稍后重试' }
+          }
+
+          // Make the new token available to the immediately following profile request.
           this.userInfo = { token }
 
           try {
-            // 再获取用户信息
             const userInfoResponse = await getUserInfo()
             
             if (userInfoResponse.code === 0) {
               this.setUserInfo(userInfoResponse.data, token)
               return { success: true, message: '登录成功' }
             }
+
+            if (this.userInfo.token === token) {
+              this.clearUserInfo()
+            }
             return { success: false, message: userInfoResponse.message || '获取用户信息失败' }
           } catch (error: any) {
+            if (this.userInfo.token === token) {
+              this.clearUserInfo()
+            }
             return { success: false, message: error.message || '获取用户信息失败' }
           }
         }
