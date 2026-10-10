@@ -1,4 +1,5 @@
 import axios, {
+  AxiosHeaders,
   AxiosInstance,
   AxiosRequestConfig,
   InternalAxiosRequestConfig,
@@ -20,14 +21,26 @@ const instance: AxiosInstance = axios.create({
   withCredentials: false,
 })
 
+const publicAuthEndpoints = [
+  '/user/login',
+  '/user/register',
+  '/user/sendVerificationCode',
+  '/user/resetUserPassword',
+]
+
+const isPublicAuthRequest = (url?: string) => {
+  const requestPath = url?.split('?')[0]
+  return !!requestPath && publicAuthEndpoints.some((endpoint) => requestPath.endsWith(endpoint))
+}
+
 // 请求拦截器
 instance.interceptors.request.use(
   (config: InternalAxiosRequestConfig) => {
     // 开启进度条
     NProgress.start()
 
-    // 只有登录请求不需要添加token
-    if (config.url?.includes('/user/login')) {
+    // Public authentication endpoints must not inherit a stale session token.
+    if (isPublicAuthRequest(config.url)) {
       return config
     }
 
@@ -69,13 +82,20 @@ instance.interceptors.response.use(
     if (error.response) {
       switch (error.response.status) {
         case 401:
-          // 如果不是登录请求，则清除用户信息
-          if (!error.config.url?.includes('/user/login')) {
-            const userStore = UserStore()
-            userStore.clearUserInfo()
-            ElMessage.error('登录已过期，请重新登录')
-          } else {
+          if (error.config?.url?.endsWith('/user/login')) {
             ElMessage.error('邮箱或密码错误')
+          } else if (!isPublicAuthRequest(error.config?.url)) {
+            const userStore = UserStore()
+            const requestToken = AxiosHeaders.from(error.config?.headers).get('Authorization')
+            const currentToken = userStore.userInfo?.token
+
+            // Ignore late responses from a session that has already been replaced.
+            if (requestToken && requestToken === currentToken) {
+              userStore.clearUserInfo()
+              ElMessage.error('登录已过期，请重新登录')
+            } else if (!requestToken && !currentToken) {
+              ElMessage.error('请先登录')
+            }
           }
           break
         case 403:

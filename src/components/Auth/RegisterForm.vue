@@ -59,6 +59,7 @@ const handleSendCode = async () => {
     }
     const response = await sendEmailCode(registerForm.email)
     if (response.code === 0) {
+      registerForm.verificationCode = ''
       ElMessage.success('验证码已发送')
       countdown.value = 60
       const timer = setInterval(() => {
