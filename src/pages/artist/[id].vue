@@ -14,6 +14,8 @@ interface ArtistDetailResponse {
     birth: string
     area: string
     introduction: string
+    avatarSource?: string
+    introductionSource?: string
     songs: any[]
 }
 
@@ -40,6 +42,8 @@ const fetchArtistDetail = async () => {
                 birth: artistData.birth || '',
                 area: artistData.area || '未知',
                 introduction: artistData.introduction || '暂无简介',
+                avatarSource: artistData.avatarSource || '',
+                introductionSource: artistData.introductionSource || '',
                 songs: artistData.songs || []
             })
         } else {
@@ -102,6 +106,22 @@ const formatArea = (area: string) => areaLabels[area] || area
                     <p v-if="artistInfo?.birth">生日：{{ formatBirth(artistInfo.birth) }}</p>
                     <p v-if="artistInfo?.area">地区：{{ formatArea(artistInfo.area) }}</p>
                     <p v-if="artistInfo?.introduction" class="mt-2 line-clamp-4">简介：{{ artistInfo.introduction }}
+                    </p>
+                    <p v-if="artistInfo?.introductionSource">
+                        <a
+                            :href="artistInfo.introductionSource"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            class="underline"
+                        >简介来源</a>
+                    </p>
+                    <p v-if="artistInfo?.avatarSource">
+                        <a
+                            :href="artistInfo.avatarSource"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            class="underline"
+                        >头像来源与授权</a>
                     </p>
                 </div>
             </div>
