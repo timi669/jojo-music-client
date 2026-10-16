@@ -6,7 +6,6 @@ import { urlV1 } from '@/api'
 
 // Limit compatibility handling to the flagged files; all other tracks keep direct streaming.
 const flacPictureMetadataTrackIds = new Set(['939', '1049', '1092', '1099'])
-const mp4ContainerTrackIds = new Set(['599'])
 
 interface FlacMetadataBlock {
   start: number
@@ -108,15 +107,6 @@ const stripInvalidFlacPictureBlocks = (bytes: Uint8Array) => {
 }
 
 const preparePlaybackUrl = async (trackId: string, url: string) => {
-  if (mp4ContainerTrackIds.has(trackId)) {
-    const response = await fetch(url)
-    if (!response.ok)
-      throw new Error(`Audio request failed: ${response.status}`)
-    return URL.createObjectURL(
-      new Blob([await response.arrayBuffer()], { type: 'audio/mp4' })
-    )
-  }
-
   if (!flacPictureMetadataTrackIds.has(trackId)) return null
 
   const probe = await fetch(url, { headers: { Range: 'bytes=0-65535' } })
