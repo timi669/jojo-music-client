@@ -3,6 +3,138 @@ import { defaultSong } from '@/mock'
 import { ElNotification } from 'element-plus'
 import { PlayMode } from './interface'
 import { urlV1 } from '@/api'
+
+// Limit compatibility handling to the flagged files; all other tracks keep direct streaming.
+const flacPictureMetadataTrackIds = new Set(['939', '1049', '1092', '1099'])
+const mp4ContainerTrackIds = new Set(['599'])
+
+interface FlacMetadataBlock {
+  start: number
+  end: number
+  pictureType?: number
+}
+
+const hasInvalidFlacPictureType = (bytes: Uint8Array) => {
+  if (
+    bytes.length < 8 ||
+    bytes[0] !== 0x66 ||
+    bytes[1] !== 0x4c ||
+    bytes[2] !== 0x61 ||
+    bytes[3] !== 0x43
+  ) {
+    return false
+  }
+
+  let offset = 4
+  while (offset + 4 <= bytes.length) {
+    const header = bytes[offset]
+    const type = header & 0x7f
+    const length =
+      (bytes[offset + 1] << 16) | (bytes[offset + 2] << 8) | bytes[offset + 3]
+
+    if (type === 6 && length >= 4 && offset + 8 <= bytes.length) {
+      const pictureType =
+        (bytes[offset + 4] * 0x1000000 +
+          (bytes[offset + 5] << 16) +
+          (bytes[offset + 6] << 8) +
+          bytes[offset + 7]) >>>
+        0
+      if (pictureType > 20) return true
+    }
+
+    offset += 4 + length
+    if (header & 0x80) return false
+  }
+
+  return false
+}
+
+const stripInvalidFlacPictureBlocks = (bytes: Uint8Array) => {
+  if (
+    bytes.length < 8 ||
+    bytes[0] !== 0x66 ||
+    bytes[1] !== 0x4c ||
+    bytes[2] !== 0x61 ||
+    bytes[3] !== 0x43
+  ) {
+    return null
+  }
+
+  const blocks: FlacMetadataBlock[] = []
+  let offset = 4
+  let metadataComplete = false
+
+  while (offset + 4 <= bytes.length) {
+    const header = bytes[offset]
+    const type = header & 0x7f
+    const length =
+      (bytes[offset + 1] << 16) | (bytes[offset + 2] << 8) | bytes[offset + 3]
+    const end = offset + 4 + length
+    if (end > bytes.length) return null
+
+    const block: FlacMetadataBlock = { start: offset, end }
+    if (type === 6 && length >= 4) {
+      block.pictureType =
+        (bytes[offset + 4] * 0x1000000 +
+          (bytes[offset + 5] << 16) +
+          (bytes[offset + 6] << 8) +
+          bytes[offset + 7]) >>>
+        0
+    }
+    blocks.push(block)
+    offset = end
+
+    if (header & 0x80) {
+      metadataComplete = true
+      break
+    }
+  }
+
+  const retainedBlocks = blocks.filter(
+    (block) => block.pictureType === undefined || block.pictureType <= 20
+  )
+  if (!metadataComplete || retainedBlocks.length === blocks.length) return null
+
+  const parts: BlobPart[] = [bytes.slice(0, 4)]
+  retainedBlocks.forEach((block, index) => {
+    const data = bytes.slice(block.start, block.end)
+    data[0] =
+      (data[0] & 0x7f) | (index === retainedBlocks.length - 1 ? 0x80 : 0)
+    parts.push(data)
+  })
+  parts.push(bytes.slice(offset))
+
+  return new Blob(parts, { type: 'audio/flac' })
+}
+
+const preparePlaybackUrl = async (trackId: string, url: string) => {
+  if (mp4ContainerTrackIds.has(trackId)) {
+    const response = await fetch(url)
+    if (!response.ok)
+      throw new Error(`Audio request failed: ${response.status}`)
+    return URL.createObjectURL(
+      new Blob([await response.arrayBuffer()], { type: 'audio/mp4' })
+    )
+  }
+
+  if (!flacPictureMetadataTrackIds.has(trackId)) return null
+
+  const probe = await fetch(url, { headers: { Range: 'bytes=0-65535' } })
+  if (probe.status !== 206) {
+    throw new Error(`FLAC metadata probe failed: HTTP ${probe.status}`)
+  }
+  if (!hasInvalidFlacPictureType(new Uint8Array(await probe.arrayBuffer()))) {
+    return null
+  }
+
+  const response = await fetch(url)
+  if (!response.ok) throw new Error(`Audio request failed: ${response.status}`)
+  const sanitized = stripInvalidFlacPictureBlocks(
+    new Uint8Array(await response.arrayBuffer())
+  )
+  return sanitized ? URL.createObjectURL(sanitized) : null
+}
+
 interface AudioPlayer {
   isPlaying: Ref<boolean>
   currentTrack: ComputedRef<trackModel>
@@ -11,7 +143,7 @@ interface AudioPlayer {
   volume: Ref<number>
   //   currentLyricIndex: Ref<number>
   audioElement: Ref<HTMLAudioElement | null>
-  play: () => void
+  play: () => Promise<void>
   pause: () => void
   nextTrack: () => void
   prevTrack: () => void
@@ -35,6 +167,14 @@ export const AudioPlayer = () => {
   )
   const currentTime = ref(0)
   const duration = ref(0)
+  let playbackErrorReported = false
+  let playbackObjectUrl: string | null = null
+
+  const releasePlaybackObjectUrl = () => {
+    if (!playbackObjectUrl) return
+    URL.revokeObjectURL(playbackObjectUrl)
+    playbackObjectUrl = null
+  }
 
   //   // 用于追踪当前歌词索引
   //   const currentLyricIndex = ref(0)
@@ -55,10 +195,47 @@ export const AudioPlayer = () => {
   //   }
 
   // 播放音乐
-  const play = () => {
-    if (audioElement.value) {
-      audioElement.value.play()
+  const reportPlaybackError = () => {
+    if (playbackErrorReported) return
+    playbackErrorReported = true
+
+    const errorCode = audioElement.value?.error?.code
+    const message =
+      errorCode === MediaError.MEDIA_ERR_NETWORK
+        ? '音频加载失败，请检查网络或音频文件地址'
+        : errorCode === MediaError.MEDIA_ERR_DECODE
+          ? '音频解码失败，文件可能已损坏'
+          : errorCode === MediaError.MEDIA_ERR_SRC_NOT_SUPPORTED
+            ? '浏览器不支持这首歌的音频格式'
+            : '歌曲播放失败，请稍后重试'
+
+    ElNotification({
+      title: '播放失败',
+      message,
+      type: 'error',
+      duration: 4000,
+    })
+  }
+
+  const play = async () => {
+    const player = audioElement.value
+    if (!player) return
+
+    try {
+      await player.play()
       isPlaying.value = true
+    } catch (error) {
+      isPlaying.value = false
+      if (error instanceof DOMException && error.name === 'NotAllowedError') {
+        ElNotification({
+          title: '无法播放',
+          message: '浏览器阻止了播放，请再次点击播放按钮',
+          type: 'warning',
+          duration: 3000,
+        })
+        return
+      }
+      reportPlaybackError()
     }
   }
   // 跳转到指定时间
@@ -142,13 +319,35 @@ export const AudioPlayer = () => {
   const loadTrack = async () => {
     // 检查歌曲 URL
     await checkUrl()
-    // 歌词是否存在
-    // checkLyrics()
+    const player = audioElement.value
+    const track = currentTrack.value
+    if (!player) return
 
-    if (audioElement.value) {
-      audioElement.value.src = currentTrack.value.url
-      audioElement.value.load()
+    player.pause()
+    player.removeAttribute('src')
+    player.load()
+    releasePlaybackObjectUrl()
+    playbackErrorReported = false
+    isPlaying.value = false
+    currentTime.value = 0
+    duration.value = 0
+
+    let preparedUrl: string | null = null
+    try {
+      preparedUrl = await preparePlaybackUrl(track.id, track.url)
+    } catch (error) {
+      console.warn(`Using original audio URL for track ${track.id}`, error)
     }
+
+    if (currentTrack.value.id !== track.id) {
+      if (preparedUrl) URL.revokeObjectURL(preparedUrl)
+      return
+    }
+
+    const sourceUrl = preparedUrl ?? track.url
+    playbackObjectUrl = preparedUrl
+    player.src = sourceUrl
+    player.load()
   }
 
   // 检查歌曲 URL
@@ -203,6 +402,21 @@ export const AudioPlayer = () => {
     }
   }
 
+  const onPlaying = () => {
+    isPlaying.value = true
+  }
+
+  const onPause = () => {
+    isPlaying.value = false
+  }
+
+  const onError = () => {
+    isPlaying.value = false
+    currentTime.value = 0
+    duration.value = 0
+    reportPlaybackError()
+  }
+
   // 切换播放/暂停状态
   const togglePlayPause = () => {
     if (isPlaying.value) {
@@ -253,15 +467,25 @@ export const AudioPlayer = () => {
     audioElement.value.addEventListener('timeupdate', updateTime)
     audioElement.value.addEventListener('ended', nextTrack)
     audioElement.value.addEventListener('loadedmetadata', onLoadedMetadata)
+    audioElement.value.addEventListener('playing', onPlaying)
+    audioElement.value.addEventListener('pause', onPause)
+    audioElement.value.addEventListener('error', onError)
   })
 
   // 组件卸载时移除事件监听器
   onUnmounted(() => {
     if (audioElement.value) {
+      audioElement.value.pause()
+      audioElement.value.removeAttribute('src')
+      audioElement.value.load()
       audioElement.value.removeEventListener('timeupdate', updateTime)
       audioElement.value.removeEventListener('ended', nextTrack)
       audioElement.value.removeEventListener('loadedmetadata', onLoadedMetadata)
+      audioElement.value.removeEventListener('playing', onPlaying)
+      audioElement.value.removeEventListener('pause', onPause)
+      audioElement.value.removeEventListener('error', onError)
     }
+    releasePlaybackObjectUrl()
   })
 
   const audioPlayer: AudioPlayer = {

@@ -9,8 +9,6 @@ interface ArtistInfo {
   gender: number | null
   area: string
   introduction: string
-  avatarSource?: string
-  introductionSource?: string
   songs: Song[]
 }
 

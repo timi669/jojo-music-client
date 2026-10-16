@@ -14,8 +14,6 @@ interface ArtistDetailResponse {
     birth: string
     area: string
     introduction: string
-    avatarSource?: string
-    introductionSource?: string
     songs: any[]
 }
 
@@ -42,8 +40,6 @@ const fetchArtistDetail = async () => {
                 birth: artistData.birth || '',
                 area: artistData.area || '未知',
                 introduction: artistData.introduction || '暂无简介',
-                avatarSource: artistData.avatarSource || '',
-                introductionSource: artistData.introductionSource || '',
                 songs: artistData.songs || []
             })
         } else {
@@ -78,10 +74,27 @@ const formatGender = (gender: number | null) => {
 
 const areaLabels: Record<string, string> = {
     China: '中国',
+    中华人民共和国: '中国',
+    中華人民共和國: '中国',
+    中國: '中国',
     'United States': '美国',
+    'United States of America': '美国',
+    USA: '美国',
+    美國: '美国',
+    美利坚合众国: '美国',
+    美利堅合眾國: '美国',
     Canada: '加拿大',
     Taiwan: '中国台湾',
+    'Taiwan, Province of China': '中国台湾',
+    台湾: '中国台湾',
+    臺灣: '中国台湾',
+    中國台灣: '中国台湾',
+    中华民国: '中国台湾',
+    中華民國: '中国台湾',
     'South Korea': '韩国',
+    'Korea, Republic of': '韩国',
+    韓國: '韩国',
+    大韓民國: '韩国',
     Japan: '日本',
     Brazil: '巴西',
     Chongqing: '重庆',
@@ -91,52 +104,39 @@ const formatArea = (area: string) => areaLabels[area] || area
 </script>
 
 <template>
-    <div class="container mx-auto py-10 px-5 h-full flex-1 flex flex-col">
-        <!-- 歌手详情 -->
-        <div class="flex flex-col lg:flex-row items-center gap-8">
-            <div class="w-48 h-48 rounded-full overflow-hidden bg-gray-200">
-                <img :src="artistInfo?.avatar" :alt="artistInfo?.artistName" class="w-full h-full object-cover" />
-            </div>
-            <div class="text-center lg:text-left flex-1">
-                <h1 class="text-3xl font-semibold text-foreground">
-                    {{ artistInfo?.artistName }}
-                </h1>
-                <div class="mt-4 space-y-2 text-sm text-muted-foreground">
-                    <p v-if="artistInfo">类型：{{ formatGender(artistInfo.gender) }}</p>
-                    <p v-if="artistInfo?.birth">生日：{{ formatBirth(artistInfo.birth) }}</p>
-                    <p v-if="artistInfo?.area">地区：{{ formatArea(artistInfo.area) }}</p>
-                    <p v-if="artistInfo?.introduction" class="mt-2 line-clamp-4">简介：{{ artistInfo.introduction }}
-                    </p>
-                    <p v-if="artistInfo?.introductionSource">
-                        <a
-                            :href="artistInfo.introductionSource"
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            class="underline"
-                        >简介来源</a>
-                    </p>
-                    <p v-if="artistInfo?.avatarSource">
-                        <a
-                            :href="artistInfo.avatarSource"
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            class="underline"
-                        >头像来源与授权</a>
-                    </p>
+    <div class="h-full min-h-0 overflow-y-auto">
+        <div class="container mx-auto py-10 px-5 min-h-full flex flex-col">
+            <!-- 歌手详情 -->
+            <div class="flex flex-col lg:flex-row items-center gap-8">
+                <div class="w-48 h-48 rounded-full overflow-hidden bg-gray-200">
+                    <img :src="artistInfo?.avatar" :alt="artistInfo?.artistName" class="w-full h-full object-cover" />
+                </div>
+                <div class="text-center lg:text-left flex-1">
+                    <h1 class="text-3xl font-semibold text-foreground">
+                        {{ artistInfo?.artistName }}
+                    </h1>
+                    <div class="mt-4 space-y-2 text-sm text-muted-foreground">
+                        <p v-if="artistInfo">类型：{{ formatGender(artistInfo.gender) }}</p>
+                        <p v-if="artistInfo?.birth">生日：{{ formatBirth(artistInfo.birth) }}</p>
+                        <p v-if="artistInfo?.area">地区：{{ formatArea(artistInfo.area) }}</p>
+                        <p v-if="artistInfo?.introduction" class="mt-2 whitespace-pre-wrap break-words leading-7 text-foreground/90">
+                            简介：{{ artistInfo.introduction }}
+                        </p>
+                    </div>
                 </div>
             </div>
-        </div>
 
-        <!-- 歌曲列表 -->
-        <div class="mt-12 flex flex-col flex-1">
-            <div class="mb-6 flex items-center justify-between">
-                <h2 class="text-2xl font-semibold text-foreground">所有歌曲</h2>
-                <span class="text-sm text-muted-foreground">
-                    共 {{ artistInfo?.songs.length ?? 0 }} 首
-                </span>
-            </div>
-            <div class="w-full h-full flex">
-                <Table :data="artistInfo?.songs" />
+            <!-- 歌曲列表 -->
+            <div class="mt-12 flex flex-col flex-1">
+                <div class="mb-6 flex items-center justify-between">
+                    <h2 class="text-2xl font-semibold text-foreground">所有歌曲</h2>
+                    <span class="text-sm text-muted-foreground">
+                        共 {{ artistInfo?.songs.length ?? 0 }} 首
+                    </span>
+                </div>
+                <div class="w-full h-full flex">
+                    <Table :data="artistInfo?.songs" />
+                </div>
             </div>
         </div>
     </div>
