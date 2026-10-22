@@ -29,6 +29,7 @@
     "artplayer": "^5.2.2",
     "axios": "^1.7.9",
     "element-plus": "^2.9.3",
+    "idb": "^8.0.4",
     "js-cookie": "^3.0.5",
     "nprogress": "^0.2.0",
     "pinia": "^2.3.1",

@@ -9,6 +9,7 @@ import 'vue-cropper/dist/index.css'
 import { VueCropper } from "vue-cropper";
 import { useRouter } from 'vue-router'
 import AuthTabs from '@/components/Auth/AuthTabs.vue'
+import BackgroundSetting from '@/components/BackgroundSetting/index.vue'
 
 const router = useRouter()
 const userStore = UserStore()
@@ -289,6 +290,12 @@ const handleDelete = async () => {
         </div>
       </el-form-item>
     </el-form>
+
+    <!-- 背景设置（壁纸） -->
+    <div class="section">
+      <div class="section-title">背景设置</div>
+      <BackgroundSetting />
+    </div>
 
     <!-- 登录对话框 -->
     <AuthTabs v-model="authVisible" />
