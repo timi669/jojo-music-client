@@ -153,6 +153,49 @@ describe('中灰壁纸的明暗判定（回归：曾误判为暗色导致对比�
   })
 })
 
+describe('次级文字色（表头/辅助说明）应比主文字淡一档但保持可读', () => {
+  // 复刻 store 中 resolvedMutedForeground 的算法，验证其性质：
+  // 朝背景方向混入 35%，形成层级感且不至于看不清。
+  const mutedFrom = (fgHex: string, bgHex: string, ratio = 0.35) => {
+    const fg = hexToRgb(fgHex)
+    const bg = hexToRgb(bgHex)
+    const mix = (i: 0 | 1 | 2) => Math.round(fg[i] * (1 - ratio) + bg[i] * ratio)
+    return rgbToHex(mix(0), mix(1), mix(2))
+  }
+
+  it('暗壁纸上：主文字浅白时，次级色仍偏浅、对比度不低于约 3:1', () => {
+    const bg = '#6d595e'
+    const muted = mutedFrom(LIGHT_FOREGROUND, bg)
+    const ratio = contrastRatio(hexToRgb(muted), hexToRgb(bg))
+    expect(ratio).toBeGreaterThanOrEqual(3)
+  })
+
+  it('亮壁纸上：主文字深灰时，次级色仍偏深、对比度不低于约 3:1', () => {
+    const bg = '#f2ede4'
+    const muted = mutedFrom(DARK_FOREGROUND, bg)
+    const ratio = contrastRatio(hexToRgb(muted), hexToRgb(bg))
+    expect(ratio).toBeGreaterThanOrEqual(3)
+  })
+
+  it('次级色应比主文字色更接近背景（即对比度更低），从而形成层次', () => {
+    const bg = '#6d595e'
+    const primary = contrastRatio(hexToRgb(LIGHT_FOREGROUND), hexToRgb(bg))
+    const muted = contrastRatio(hexToRgb(mutedFrom(LIGHT_FOREGROUND, bg)), hexToRgb(bg))
+    expect(muted).toBeLessThan(primary)
+  })
+
+  it('输出为合法 hex', () => {
+    for (const [fg, bg] of [
+      [LIGHT_FOREGROUND, '#6d595e'],
+      [DARK_FOREGROUND, '#f2ede4'],
+      [LIGHT_FOREGROUND, '#000000'],
+      [DARK_FOREGROUND, '#ffffff']
+    ]) {
+      expect(mutedFrom(fg, bg)).toMatch(/^#[0-9a-f]{6}$/)
+    }
+  })
+})
+
 describe('suggestOverlayOpacity / suggestOverlay（对比度不足时的遮罩兜底）', () => {
   it('中灰背景下深色文字应搭配白色遮罩，且建议值能真正达标', () => {
     const bg = '#767676'

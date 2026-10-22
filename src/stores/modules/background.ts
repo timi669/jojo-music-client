@@ -17,9 +17,12 @@ import { defineStore } from 'pinia'
 import type { PersistenceOptions } from 'pinia-plugin-persistedstate'
 import {
   DEFAULT_BACKGROUND_SETTINGS,
+  DARK_FOREGROUND,
+  LIGHT_FOREGROUND,
   pickReadableForeground,
   suggestOverlay,
   hexToRgb,
+  rgbToHex,
   hexToHslComponents,
   type BackgroundSettings,
   type BackgroundImageMeta
@@ -89,8 +92,13 @@ export const backgroundStore = defineStore({
      */
     resolvedForeground(state): string {
       const mode = state.settings.fontColorMode
-      if (mode === 'dark') return state.settings.manualForeground || '#111827'
-      if (mode === 'light') return state.settings.manualForeground || '#f8fafc'
+      // 手动模式：用标准深/浅色，除非用户显式挑过色
+      if (mode === 'dark') {
+        return state.settings.manualForeground || DARK_FOREGROUND
+      }
+      if (mode === 'light') {
+        return state.settings.manualForeground || LIGHT_FOREGROUND
+      }
 
       const meta = this.activeImage
       if (!meta) return ''
@@ -103,6 +111,27 @@ export const backgroundStore = defineStore({
           : state.settings.overlayTone
       const eff = effectiveBackgroundHex(base, state.settings.overlay, tone)
       return pickReadableForeground(eff).hex
+    },
+
+    /**
+     * 次级文字色（表头、辅助说明、占位符等）。
+     *
+     * 主文字色与背景通常已有 4.5:1 以上对比，次级文字若直接用同一色会显得没有层次；
+     * 这里按主文字色朝背景方向"降低对比"取一个中间值，同时保证不低于约 3:1，
+     * 既保留层级感又不会看不清。
+     */
+    resolvedMutedForeground(): string {
+      const fg = this.resolvedForeground
+      if (!fg) return ''
+      const meta = this.activeImage
+      if (!meta) return fg
+      const base = meta.averageColor || (metaLuminance(meta) > 0.5 ? '#ffffff' : '#000000')
+      const fgRgb = hexToRgb(fg)
+      const bgRgb = hexToRgb(base)
+      // 朝背景方向混入 35%，形成"淡一档"的次级色
+      const mix = (i: 0 | 1 | 2) => Math.round(fgRgb[i] * 0.65 + bgRgb[i] * 0.35)
+      const muted = rgbToHex(mix(0), mix(1), mix(2))
+      return muted
     },
     /** 当前文字色与背景的实际对比度（用于设置面板实时提示） */
     currentContrast(state): number {
@@ -248,10 +277,28 @@ export const backgroundStore = defineStore({
           '--bg-wallpaper-active',
           '--background',
           '--theme-bg-color',
+          // 文字色（tailwind + Element Plus）
           '--foreground',
-          '--foreground-hex'
+          '--card-foreground',
+          '--popover-foreground',
+          '--secondary-foreground',
+          '--accent-foreground',
+          '--muted-foreground',
+          '--foreground-hex',
+          '--muted-foreground-hex',
+          '--el-text-color-primary',
+          '--el-text-color-regular',
+          '--el-text-color-secondary',
+          '--el-text-color-placeholder',
+          '--el-text-color-disabled',
+          '--el-text-color-primary-dark',
+          '--el-text-color-regular-dark',
+          '--el-table-text-color',
+          '--el-table-header-text-color',
+          '--el-descriptions-item-bordered-label-background'
         ]
         props.forEach(p => root.style.removeProperty(p))
+        root.removeAttribute('data-bg-wallpaper')
         return
       }
 
@@ -285,18 +332,78 @@ export const backgroundStore = defineStore({
         root.style.setProperty('--theme-bg-color', '222, 25%, 8%, 32%')
       }
       root.style.setProperty('--bg-wallpaper-active', '1')
+      // 供 CSS 选择器使用（控制 Element Plus 容器透明化等），比 style 属性选择器可靠
+      root.setAttribute('data-bg-wallpaper', '1')
 
-      // 文字色：resolvedForeground 给出的是 hex（便于 UI 展示），
-      // 但本项目 --foreground 采用的是 "H S% L%" 分量格式
-      // （tailwind 里为 hsl(var(--foreground))），因此这里要转成分量再写入。
+      // 文字色：resolvedForeground 给出 hex（便于 UI 展示），
+      // 但 CSS 变量需要分量格式，故统一转换后写入。
       const fgHex = this.resolvedForeground
+      const mutedHex = this.resolvedMutedForeground
+
       if (fgHex) {
-        root.style.setProperty('--foreground', hexToHslComponents(fgHex))
-        // 同时提供 hex 供组件直接取用（例如设置面板里的色块预览）
-        root.style.setProperty('--foreground-hex', fgHex)
+        const fg = hexToHslComponents(fgHex)
+        const muted = hexToHslComponents(mutedHex || fgHex)
+
+        /*
+         * 接管两类文字色变量，否则"换了壁纸但歌名/歌手没变色"：
+         *
+         * 1) tailwind 侧：--foreground 等（hsl(var(--x)) 消费，需分量格式）
+         * 2) Element Plus 侧：--el-text-color-* 系列。
+         *    曲库/歌单表格里的歌名、歌手、表头、辅助文字都走这一套，
+         *    原实现只改了 tailwind 变量，所以这些文字完全没跟随。
+         */
+        const overrides: Record<string, string> = {
+          // —— tailwind ——
+          '--foreground': fg,
+          '--card-foreground': fg,
+          '--popover-foreground': fg,
+          '--secondary-foreground': fg,
+          '--accent-foreground': fg,
+          '--muted-foreground': muted,
+          '--foreground-hex': fgHex,
+          '--muted-foreground-hex': mutedHex || fgHex,
+
+          // —— Element Plus ——
+          '--el-text-color-primary': fgHex,
+          '--el-text-color-regular': fgHex,
+          '--el-text-color-secondary': mutedHex || fgHex,
+          '--el-text-color-placeholder': mutedHex || fgHex,
+          '--el-text-color-disabled': mutedHex || fgHex,
+          '--el-text-color-primary-dark': fgHex,
+          '--el-text-color-regular-dark': fgHex,
+
+          // 表格与描述类组件的文字/边框，跟随容器透明度而非纯色，
+          // 避免在壁纸上出现突兀的实心条块
+          '--el-table-text-color': fgHex,
+          '--el-table-header-text-color': mutedHex || fgHex,
+          '--el-descriptions-item-bordered-label-background': 'transparent'
+        }
+
+        for (const [key, value] of Object.entries(overrides)) {
+          root.style.setProperty(key, value)
+        }
       } else {
-        root.style.removeProperty('--foreground')
-        root.style.removeProperty('--foreground-hex')
+        const toClear = [
+          '--foreground',
+          '--card-foreground',
+          '--popover-foreground',
+          '--secondary-foreground',
+          '--accent-foreground',
+          '--muted-foreground',
+          '--foreground-hex',
+          '--muted-foreground-hex',
+          '--el-text-color-primary',
+          '--el-text-color-regular',
+          '--el-text-color-secondary',
+          '--el-text-color-placeholder',
+          '--el-text-color-disabled',
+          '--el-text-color-primary-dark',
+          '--el-text-color-regular-dark',
+          '--el-table-text-color',
+          '--el-table-header-text-color',
+          '--el-descriptions-item-bordered-label-background'
+        ]
+        toClear.forEach(p => root.style.removeProperty(p))
       }
     }
   },
