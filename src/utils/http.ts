@@ -118,25 +118,28 @@ instance.interceptors.response.use(
   }
 )
 
+// 注意：响应拦截器已把 AxiosResponse 解包为 response.data，
+// 因此这里的返回值在运行时就是 T，需用 as unknown as Promise<T> 告知 TS。
 // 封装request方法
 export const http = <T>(
   method: 'get' | 'post' | 'put' | 'delete' | 'patch',
   url: string,
   config?: Omit<AxiosRequestConfig, 'method' | 'url'>
 ): Promise<T> => {
-  return instance({ method, url, ...config })
+  return instance({ method, url, ...config }) as unknown as Promise<T>
 }
 
 // 封装get方法
 export const httpGet = <T>(url: string, params?: object): Promise<T> =>
-  instance.get(url, { params })
+  instance.get(url, { params }) as unknown as Promise<T>
 
 // 封装post方法
 export const httpPost = <T>(
   url: string,
   data?: object,
   header?: object
-): Promise<T> => instance.post(url, data, { headers: header })
+): Promise<T> =>
+  instance.post(url, data, { headers: header }) as unknown as Promise<T>
 
 // 封装upload方法
 export const httpUpload = <T>(
@@ -149,5 +152,5 @@ export const httpUpload = <T>(
       'Content-Type': 'multipart/form-data',
       ...header,
     },
-  })
+  }) as unknown as Promise<T>
 }
