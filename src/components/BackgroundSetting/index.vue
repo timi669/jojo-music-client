@@ -89,6 +89,72 @@
         </p>
       </div>
 
+      <!-- 自动轮播：壁纸多于一张时才有意义 -->
+      <div class="bg-setting__block">
+        <div class="bg-setting__block-title">
+          <span>自动轮播</span>
+          <el-button
+            size="small"
+            text
+            :disabled="!bg.slideshowActive"
+            @click="bg.nextWallpaper()"
+          >
+            立即切换
+          </el-button>
+        </div>
+
+        <div class="bg-setting__row">
+          <span class="mini-label">启用轮播</span>
+          <el-switch
+            :model-value="bg.settings.slideshow"
+            :disabled="bg.images.length < 2"
+            @change="v => onSlideshowToggle(Boolean(v))"
+          />
+          <span class="hint" v-if="bg.images.length < 2">
+            需要至少 2 张壁纸才能轮播
+          </span>
+        </div>
+
+        <template v-if="bg.slideshowActive">
+          <div class="slider-row">
+            <span class="mini-label">间隔</span>
+            <el-slider
+              :model-value="bg.settings.slideshowInterval"
+              :min="1"
+              :max="60"
+              :step="1"
+              :format-tooltip="v => `${v} 分钟`"
+              @input="v => bg.updateSlideshow({ slideshowInterval: v as number })"
+            />
+            <span class="slider-value">{{ bg.settings.slideshowInterval }} 分</span>
+          </div>
+
+          <div class="bg-setting__row">
+            <span class="mini-label">顺序</span>
+            <el-radio-group
+              :model-value="bg.settings.slideshowOrder"
+              size="small"
+              @change="v => bg.updateSlideshow({ slideshowOrder: v as 'sequential' | 'shuffle' })"
+            >
+              <el-radio-button value="sequential">按顺序</el-radio-button>
+              <el-radio-button value="shuffle">随机</el-radio-button>
+            </el-radio-group>
+          </div>
+
+          <div class="bg-setting__row">
+            <span class="mini-label">淡入过渡</span>
+            <el-switch
+              :model-value="bg.settings.slideshowFade"
+              @change="v => bg.updateSlideshow({ slideshowFade: Boolean(v) })"
+            />
+          </div>
+
+          <p class="tip">
+            轮播会在后台按间隔自动换图；每张壁纸各自的构图参数仍然独立生效。
+          </p>
+        </template>
+      </div>
+
       <!-- 构图 -->
       <div class="bg-setting__block">
         <div class="bg-setting__block-title">
@@ -802,6 +868,20 @@ function onToggleFollowDominant(v: boolean | string | number) {
   followDominant.value = on
   bg.setThemeFollow(on)
   if (on) ElMessage.success('已开启跟随，切换壁纸时会自动更新主题色')
+}
+
+/** 切换轮播开关，并给出明确反馈 */
+function onSlideshowToggle(on: boolean) {
+  if (on && bg.images.length < 2) {
+    ElMessage.warning('需要至少 2 张壁纸才能轮播')
+    return
+  }
+  bg.updateSlideshow({ slideshow: on })
+  if (on) {
+    ElMessage.success(
+      `已开启轮播：每 ${bg.settings.slideshowInterval} 分钟自动切换`
+    )
+  }
 }
 
 function onResetAll() {

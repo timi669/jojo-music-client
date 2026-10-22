@@ -393,6 +393,59 @@ describe('默认配置与按图布局（回归：构图不应跨图串用）', (
   })
 })
 
+describe('自动轮播（顺序/随机/间隔校验）', () => {
+  // 复刻 store 的轮播推进算法，验证其契约（纯逻辑，无需起计时器）
+  const nextIndex = (
+    current: number,
+    total: number,
+    order: 'sequential' | 'shuffle',
+    rand = Math.random
+  ): number => {
+    if (total < 2) return current
+    if (order === 'shuffle') {
+      const candidates = Array.from({ length: total }, (_, i) => i).filter(
+        i => i !== current
+      )
+      return candidates[Math.floor(rand() * candidates.length)]
+    }
+    return current < 0 ? 0 : (current + 1) % total
+  }
+
+  it('顺序模式按索引循环前进', () => {
+    expect(nextIndex(0, 3, 'sequential')).toBe(1)
+    expect(nextIndex(1, 3, 'sequential')).toBe(2)
+    expect(nextIndex(2, 3, 'sequential')).toBe(0)
+  })
+
+  it('顺序模式在无当前图时从第 0 张开始', () => {
+    expect(nextIndex(-1, 3, 'sequential')).toBe(0)
+  })
+
+  it('随机模式不会选到当前这张', () => {
+    for (let i = 0; i < 50; i++) {
+      const n = nextIndex(1, 3, 'shuffle')
+      expect(n).not.toBe(1)
+      expect(n).toBeGreaterThanOrEqual(0)
+      expect(n).toBeLessThan(3)
+    }
+  })
+
+  it('随机模式在只有 2 张时仍能选到唯一那张', () => {
+    expect(nextIndex(0, 2, 'shuffle')).toBe(1)
+    expect(nextIndex(1, 2, 'shuffle')).toBe(0)
+  })
+
+  it('壁纸不足 2 张时不切换（返回原索引）', () => {
+    expect(nextIndex(0, 1, 'sequential')).toBe(0)
+    expect(nextIndex(0, 0, 'shuffle')).toBe(0)
+  })
+
+  it('随机模式注入确定随机数时结果可预测（便于测试）', () => {
+    // rand 固定为 0 -> 取候选列表第一个
+    expect(nextIndex(2, 3, 'shuffle', () => 0)).toBe(0)
+  })
+})
+
 describe('配置归一化（回归：历史数据形态与缺失字段不应导致崩溃）', () => {
   // 复刻 store 内 normalizeSettings 的规则，确保契约稳定。
   // 之所以单独测：持久化是浅合并，历史键会残留、新键会缺失，

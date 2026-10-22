@@ -132,6 +132,23 @@ export interface BackgroundSettings {
   overlayManuallySet: boolean
   /** 主题色是否跟随壁纸主色（换图时自动重算） */
   themeFollow: boolean
+  /**
+   * 自动轮播：是否启用。
+   *
+   * 需要至少 2 张壁纸才有意义；仅 1 张时开启不生效（面板会提示）。
+   */
+  slideshow: boolean
+  /** 轮播间隔（分钟）。过短会频繁重绘、也容易让人分心，因此下限设为 1 */
+  slideshowInterval: number
+  /**
+   * 轮播顺序：sequential 按导入顺序循环，shuffle 每轮随机。
+   */
+  slideshowOrder: 'sequential' | 'shuffle'
+  /**
+   * 轮播时是否让每张图"淡入淡出"过渡（关闭则直接切换）。
+   * 过渡由背景层的 CSS transition + 占位色实现，无需额外开销。
+   */
+  slideshowFade: boolean
 }
 
 /**
@@ -286,7 +303,11 @@ export const DEFAULT_BACKGROUND_SETTINGS: BackgroundSettings = {
   manualForeground: null,
   autoAdaptContrast: true,
   overlayManuallySet: false,
-  themeFollow: false
+  themeFollow: false,
+  slideshow: false,
+  slideshowInterval: 10,
+  slideshowOrder: 'sequential',
+  slideshowFade: true
 }
 
 /* ------------------------------------------------------------------ *
