@@ -98,3 +98,29 @@
     @apply bg-background text-foreground;
   }
 }
+
+/* ------------------------------------------------------------------ *
+ *  自定义背景（壁纸）相关
+ * ------------------------------------------------------------------ */
+
+:root {
+  /* 以下变量由 backgroundStore 在启用壁纸时写入；未启用时使用这里的默认值 */
+  --bg-fit: cover;
+  --bg-scale: 1;
+  --bg-offset-x: 0%;
+  --bg-offset-y: 0%;
+  --bg-opacity: 1;
+  --bg-blur: 0px;
+  --bg-brightness: 1;
+  --bg-overlay-color: transparent;
+}
+
+/*
+ * 壁纸模式下根容器去掉整体毛玻璃：
+ * 否则 backdrop-blur-lg 会把壁纸整个糊掉，失去"设壁纸"的意义。
+ * 其余透明度调整一律通过 CSS 变量完成（见 backgroundStore.applyToDom），
+ * 不使用 !important 逐个覆盖组件样式。
+ */
+.bg-with-wallpaper {
+  backdrop-filter: none;
+}

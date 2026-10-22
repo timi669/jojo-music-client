@@ -69,6 +69,23 @@ export const updateUserAvatar = (formData: FormData) => {
   })
 }
 
+/**
+ * 上传自定义背景（壁纸）到服务器（MinIO）。
+ *
+ * 说明：壁纸默认只存在浏览器本地（IndexedDB），调用本接口是"可选"的
+ * 同步动作，用于跨设备使用；返回的 URL 存到壁纸元信息里备查。
+ */
+export const uploadUserBackground = (formData: FormData) => {
+  return http<Result>('patch', '/user/uploadUserBackground', {
+    headers: {
+      'Content-Type': 'multipart/form-data',
+    },
+    data: formData,
+    transformRequest: [(data) => data],
+    timeout: 60000, // 图片较大，放宽超时
+  })
+}
+
 /** 注销账号 */
 export const deleteUser = () => {
   return http<Result>('delete', '/user/deleteAccount')
