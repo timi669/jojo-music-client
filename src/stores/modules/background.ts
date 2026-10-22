@@ -74,14 +74,25 @@ function effectiveBackgroundHex(
 }
 
 /**
- * 取图片的"底色亮度"。
+ * 取图片的"底色亮度"，永远返回 0~1 的有限数。
+ *
  * 优先用 averageLuminance（平均色自身的 WCAG 相对亮度），
- * 对早期导入、缺少该字段的记录回退到 luminance，保证老数据不崩。
+ * 对早期导入、缺少该字段的记录回退到 luminance；
+ * 两者都缺失或非法时按 0.5（中性）处理 ——
+ * 这样下游的对比度计算不会出现 NaN/Infinity。
  */
 function metaLuminance(meta: BackgroundImageMeta): number {
-  const v = (meta as BackgroundImageMeta & { averageLuminance?: number })
-    .averageLuminance
-  return typeof v === 'number' ? v : meta.luminance
+  const cand = [
+    (meta as BackgroundImageMeta & { averageLuminance?: number })
+      .averageLuminance,
+    meta.luminance
+  ]
+  for (const v of cand) {
+    if (typeof v === 'number' && Number.isFinite(v)) {
+      return Math.max(0, Math.min(1, v))
+    }
+  }
+  return 0.5
 }
 
 /** 取某图的区域采样；老数据没有则是 null，由调用方回退到整图 */
@@ -91,7 +102,43 @@ function metaRegions(meta: BackgroundImageMeta | null): Regions | null {
   return r ?? null
 }
 
-export function toRegionSample(hex: string): RegionSample {
+/**
+ * 取某图的"代表色"，永远返回合法 hex。
+ *
+ * 兼容性兜底：早期导入的记录可能连 averageColor 都没有（只有 luminance），
+ * 直接读会得到 undefined 并让下游（如 hexToRgb 里的 replace）抛错。
+ * 这里按 luminance 折算出黑白两极，保证任何历史数据都不会崩。
+ */
+function metaRepresentativeColor(meta: BackgroundImageMeta): string {
+  const c = (meta as BackgroundImageMeta & { averageColor?: string }).averageColor
+  if (typeof c === 'string' && /^#?[0-9a-fA-F]{3,8}$/.test(c.trim())) {
+    const v = c.trim()
+    return v.startsWith('#') ? v : `#${v}`
+  }
+  // 没有平均色可依据时，用亮度估一个中性色（0 黑 1 白）
+  const l = metaLuminance(meta)
+  const channel = Math.round(Math.max(0, Math.min(1, l)) * 255)
+  return rgbToHex(channel, channel, channel)
+}
+
+/**
+ * 取某图的分区采样；缺失时用代表色为每个区域构造一份，
+ * 保证 pickForegroundForRegions 永远拿到完整结构。
+ */
+function metaRegionsOrFallback(meta: BackgroundImageMeta): Regions {
+  const r = metaRegions(meta)
+  if (r) return r
+  const sample = toRegionSample(metaRepresentativeColor(meta))
+  return {
+    sidebar: sample,
+    content: sample,
+    header: sample,
+    footer: sample,
+    all: sample
+  }
+}
+
+function toRegionSample(hex: string): RegionSample {
   const [r, g, b] = hexToRgb(hex)
   const ch = (c: number) => {
     const s = c / 255
@@ -104,6 +151,95 @@ export function toRegionSample(hex: string): RegionSample {
     ),
     dominantColor: hex
   }
+}
+
+/**
+ * 校验并修正持久化恢复后的 settings。
+ *
+ * 为什么需要：pinia 持久化是**浅合并**，历史版本写入的键会残留、
+ * 新版本新增的键在旧数据里不存在。若不做归一化，
+ * 轻则旧键残留造成困惑，重则缺失字段导致运行时读到 undefined。
+ *
+ * 这里保证：
+ * - 所有新增字段都有合理默认值
+ * - 数值字段夹到合法区间
+ * - 清掉已废弃的旧键（fit/scale/offsetX/offsetY）
+ *
+ * @returns 迁移后的 settings（原地修改并返回）
+ */
+function normalizeSettings(
+  raw: Partial<BackgroundSettings> & Record<string, unknown>
+): BackgroundSettings {
+  const num = (v: unknown, fallback: number, min: number, max: number) => {
+    const n = typeof v === 'number' && Number.isFinite(v) ? v : fallback
+    return Math.max(min, Math.min(max, n))
+  }
+
+  const merged: BackgroundSettings = {
+    enabled: Boolean(raw.enabled ?? DEFAULT_BACKGROUND_SETTINGS.enabled),
+    activeImageId:
+      typeof raw.activeImageId === 'string' ? raw.activeImageId : null,
+    perImageLayout:
+      raw.perImageLayout && typeof raw.perImageLayout === 'object'
+        ? (raw.perImageLayout as Record<string, ImageLayout>)
+        : {},
+    opacity: num(raw.opacity, 1, 0.1, 1),
+    blur: num(raw.blur, 0, 0, 30),
+    brightness: num(raw.brightness, 0, -80, 80),
+    overlay: num(raw.overlay, 0, 0, 0.8),
+    overlayTone: (['auto', 'black', 'white'] as const).includes(
+      raw.overlayTone as 'auto'
+    )
+      ? (raw.overlayTone as BackgroundSettings['overlayTone'])
+      : 'auto',
+    fontColorMode: (['auto', 'light', 'dark'] as const).includes(
+      raw.fontColorMode as 'auto'
+    )
+      ? (raw.fontColorMode as BackgroundSettings['fontColorMode'])
+      : 'auto',
+    manualForeground:
+      typeof raw.manualForeground === 'string' ? raw.manualForeground : null,
+    autoAdaptContrast:
+      raw.autoAdaptContrast === undefined
+        ? DEFAULT_BACKGROUND_SETTINGS.autoAdaptContrast
+        : Boolean(raw.autoAdaptContrast),
+    themeFollow: Boolean(raw.themeFollow ?? false)
+  }
+
+  // 迁移：旧版把构图存在全局，现改为按图保存，尽量保留用户已调好的取景
+  const legacyFit = typeof raw.fit === 'string' ? raw.fit : undefined
+  const legacyScale = typeof raw.scale === 'number' ? raw.scale : undefined
+  const legacyOffsetX = typeof raw.offsetX === 'number' ? raw.offsetX : undefined
+  const legacyOffsetY = typeof raw.offsetY === 'number' ? raw.offsetY : undefined
+  const hasLegacy =
+    legacyFit !== undefined ||
+    legacyScale !== undefined ||
+    legacyOffsetX !== undefined ||
+    legacyOffsetY !== undefined
+
+  if (hasLegacy && merged.activeImageId && !merged.perImageLayout[merged.activeImageId]) {
+    merged.perImageLayout = {
+      ...merged.perImageLayout,
+      [merged.activeImageId]: {
+        fit: (['cover', 'contain', 'fill'] as const).includes(
+          legacyFit as 'cover'
+        )
+          ? (legacyFit as ImageLayout['fit'])
+          : 'cover',
+        scale: num(legacyScale, 1, 1, 3),
+        offsetX: num(legacyOffsetX, 0, -50, 50),
+        offsetY: num(legacyOffsetY, 0, -50, 50)
+      }
+    }
+  }
+
+  // 清理已废弃的旧键，避免残留在 localStorage 中
+  delete (merged as unknown as Record<string, unknown>).fit
+  delete (merged as unknown as Record<string, unknown>).scale
+  delete (merged as unknown as Record<string, unknown>).offsetX
+  delete (merged as unknown as Record<string, unknown>).offsetY
+
+  return merged
 }
 
 export const backgroundStore = defineStore({
@@ -149,8 +285,8 @@ export const backgroundStore = defineStore({
             : 'black'
           : s.overlayTone
 
-      const fallbackHex =
-        meta.averageColor || (metaLuminance(meta) > 0.5 ? '#ffffff' : '#000000')
+      // 老记录可能连 averageColor 都没有，统一用安全取值
+      const fallbackHex = metaRepresentativeColor(meta)
 
       const out: Record<string, string> = {}
       for (const k of REGION_KEYS) {
@@ -184,16 +320,7 @@ export const backgroundStore = defineStore({
       const meta = this.activeImage
       if (!meta) return ''
 
-      const regions =
-        metaRegions(meta) ??
-        ({
-          sidebar: toRegionSample(meta.averageColor),
-          content: toRegionSample(meta.averageColor),
-          header: toRegionSample(meta.averageColor),
-          footer: toRegionSample(meta.averageColor),
-          all: toRegionSample(meta.averageColor)
-        } as Regions)
-
+      const regions = metaRegionsOrFallback(meta)
       const overlayColors = this.effectiveRegionColors as Record<string, string>
       const picked = pickForegroundForRegions(regions, overlayColors)
       return picked.hex
@@ -209,8 +336,7 @@ export const backgroundStore = defineStore({
       const meta = this.activeImage
       if (!meta) return fg
       const overlayColors = this.effectiveRegionColors as Record<string, string>
-      // 用最亮的那个区域来推导次级色，保证在浅背景下也够清楚
-      const bgHex = overlayColors.all || meta.averageColor || '#ffffff'
+      const bgHex = overlayColors.all || metaRepresentativeColor(meta)
       // 目标 4.5 会让次级色与主色几乎相同，取 4.0 保留可见的层次差异
       return deriveMutedForeground(fg, bgHex, 4.0)
     },
@@ -224,15 +350,7 @@ export const backgroundStore = defineStore({
       if (!meta) return 0
       const fg = this.resolvedForeground
       if (!fg) return 0
-      const regions =
-        metaRegions(meta) ??
-        ({
-          sidebar: toRegionSample(meta.averageColor),
-          content: toRegionSample(meta.averageColor),
-          header: toRegionSample(meta.averageColor),
-          footer: toRegionSample(meta.averageColor),
-          all: toRegionSample(meta.averageColor)
-        } as Regions)
+      const regions = metaRegionsOrFallback(meta)
       const overlayColors = this.effectiveRegionColors as Record<string, string>
       const picked = pickForegroundForRegions(regions, overlayColors)
       return picked.worstRatio
@@ -287,10 +405,10 @@ export const backgroundStore = defineStore({
       const tone = this.resolvedOverlayTone
       const fg = this.resolvedForeground || DARK_FOREGROUND
 
-      const colors = REGION_KEYS.map(k => {
-        const base = regions?.[k]?.averageColor || meta.averageColor
-        return base
-      }).filter(Boolean) as string[]
+      const fallback = metaRepresentativeColor(meta)
+      const colors = REGION_KEYS.map(
+        k => regions?.[k]?.averageColor || fallback
+      ).filter(Boolean) as string[]
 
       // 先按"无遮罩"的原始底色算需要多少浓度
       const plan = suggestOverlayForRegions(colors, fg)
@@ -316,11 +434,15 @@ export const backgroundStore = defineStore({
     }
   },
   actions: {
-    /** 载入已存图片列表 */
+    /** 载入已存图片列表（并归一化历史配置） */
     async loadImages() {
       this.loading = true
       try {
         this.images = await listBackgroundImages()
+        // 归一化持久化数据的形态，兜住历史版本与缺失字段
+        this.settings = normalizeSettings(
+          this.settings as unknown as Record<string, unknown>
+        )
       } finally {
         this.loading = false
       }
