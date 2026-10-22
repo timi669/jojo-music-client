@@ -226,12 +226,22 @@ onMounted(() => {
         <div class="w-[86%] mx-auto">
           <div class="grid grid-cols-4 gap-x-16 gap-y-8">
             <div v-for="(artist, index) in artistList" :key="index"
-              class="group relative rounded-full text-card-foreground shadow-md hover:shadow-xl">
-              <button @click="router.push(`/artist/${artist.artistId}`)" class="w-full h-full overflow-hidden rounded-full">
-                <div class="w-full h-full relative">
-                  <el-image lazy :alt="artist.name"
+              class="group relative rounded-full text-card-foreground shadow-md hover:shadow-xl aspect-square">
+              <button @click="router.push(`/artist/${artist.artistId}`)" class="block w-full h-full overflow-hidden rounded-full">
+                <div class="w-full h-full relative rounded-full overflow-hidden">
+                  <!--
+                    这里用原生 img 而非 el-image：
+                    el-image 的内部结构是 <div.el-image><img.el-image__inner>，
+                    把 object-cover 写在外层 class 上不会作用于内层 img，
+                    结果是图片被拉伸变形（实测 object-fit: fill）。
+                    歌手详情页用的就是原生 img + object-cover，此处与之一致。
+                  -->
+                  <img
+                    :src="artist.picUrl + (artist.picUrl.startsWith('http') ? '?param=230y230' : '')"
+                    :alt="artist.name"
+                    loading="lazy"
                     class="h-full w-full object-cover transition-transform duration-300 ease-out group-hover:scale-110"
-:src="artist.picUrl + (artist.picUrl.startsWith('http') ? '?param=230y230' : '')" />
+                  />
                   <div
                     class="absolute inset-0 bg-black/40 opacity-0 transition-opacity duration-300 group-hover:opacity-100">
                   </div>
