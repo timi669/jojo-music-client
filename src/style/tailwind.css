@@ -153,3 +153,78 @@ html.dark:root[data-bg-wallpaper='1'] {
 :root[data-bg-wallpaper='1'] .el-table td.el-table__cell {
   background-color: transparent;
 }
+
+/* ------------------------------------------------------------------ *
+ *  排除区域（data-bg-exempt）
+ *
+ *  有些界面需要保持自身既定的观感、不应被自定义壁纸干扰，典型是
+ *  播放页抽屉：里面是专辑封面、歌词、走带控制，配色由封面本身决定，
+ *  套用全局的壁纸文字色会让歌词与封面区域显得浑浊。
+ *
+ *  做法：在豁免区域内把前面那些覆盖"还原"为项目原始值，
+ *  而不是简单地取消覆盖 —— 因为变量是写在 :root 上的、会继承下来，
+ *  必须在该子树里重新声明才能挡住。
+ * ------------------------------------------------------------------ */
+[data-bg-exempt] {
+  /* 恢复 tailwind 文字色为项目原始默认 */
+  --foreground: 222.2 84% 4.9%;
+  --card-foreground: 222.2 84% 4.9%;
+  --popover-foreground: 222.2 84% 4.9%;
+  --primary-foreground: 222.2 47.4% 11.2%;
+  --secondary-foreground: 222.2 47.4% 11.2%;
+  --accent-foreground: 222.2 47.4% 11.2%;
+  --muted-foreground: 215.4 16.3% 46.9%;
+  --inactive: 0 0% 20%;
+
+  /* 恢复 Element Plus 文字色为 EP 自身的浅色主题默认值 */
+  --el-text-color-primary: #303133;
+  --el-text-color-regular: #606266;
+  --el-text-color-secondary: #909399;
+  --el-text-color-placeholder: #a8abb2;
+  --el-text-color-disabled: #c0c4cc;
+
+  /* 容器恢复不透明，保证封面/歌词区不被壁纸透出影响 */
+  --el-bg-color: #ffffff;
+  --el-bg-color-page: #f2f3f5;
+  --el-bg-color-overlay: #ffffff;
+  --el-fill-color-blank: #ffffff;
+  --el-table-bg-color: #ffffff;
+  --el-table-tr-bg-color: #ffffff;
+  --el-table-header-bg-color: #ffffff;
+  --el-table-text-color: #606266;
+  --el-table-header-text-color: #909399;
+}
+
+html.dark [data-bg-exempt] {
+  --foreground: 210 40% 98%;
+  --card-foreground: 210 40% 98%;
+  --popover-foreground: 210 40% 98%;
+  --primary-foreground: 210 40% 98%;
+  --secondary-foreground: 210 40% 98%;
+  --accent-foreground: 210 40% 98%;
+  --muted-foreground: 215 20.2% 65.1%;
+  --inactive: 0 0% 80%;
+
+  --el-text-color-primary: #e5eaf3;
+  --el-text-color-regular: #cfd3dc;
+  --el-text-color-secondary: #a3a6ad;
+  --el-text-color-placeholder: #8d9095;
+  --el-text-color-disabled: #6c6e72;
+
+  --el-bg-color: #141414;
+  --el-bg-color-page: #0a0a0a;
+  --el-bg-color-overlay: #1d1e1f;
+  --el-fill-color-blank: #141414;
+  --el-table-bg-color: #141414;
+  --el-table-tr-bg-color: #141414;
+  --el-table-header-bg-color: #1d1e1f;
+  --el-table-text-color: #cfd3dc;
+  --el-table-header-text-color: #a3a6ad;
+}
+
+/* 豁免区域内不应出现"壁纸容器透明化"的副作用 */
+:root[data-bg-wallpaper='1'] [data-bg-exempt] .el-table,
+:root[data-bg-wallpaper='1'] [data-bg-exempt] .el-table th.el-table__cell,
+:root[data-bg-wallpaper='1'] [data-bg-exempt] .el-table td.el-table__cell {
+  background-color: var(--el-bg-color);
+}

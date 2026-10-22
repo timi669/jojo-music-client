@@ -283,7 +283,9 @@ export const backgroundStore = defineStore({
           '--popover-foreground',
           '--secondary-foreground',
           '--accent-foreground',
+          '--primary-foreground',
           '--muted-foreground',
+          '--inactive',
           '--foreground-hex',
           '--muted-foreground-hex',
           '--el-text-color-primary',
@@ -359,7 +361,13 @@ export const backgroundStore = defineStore({
           '--popover-foreground': fg,
           '--secondary-foreground': fg,
           '--accent-foreground': fg,
+          '--primary-foreground': fg,
           '--muted-foreground': muted,
+          /*
+           * 侧边栏分组标题用的是 text-inactive（tailwind 里为 hsl(var(--inactive))）。
+           * 该变量默认是深色系，在暗壁纸上会看不清，故一并按次级文字色覆盖。
+           */
+          '--inactive': muted,
           '--foreground-hex': fgHex,
           '--muted-foreground-hex': mutedHex || fgHex,
 
@@ -389,7 +397,9 @@ export const backgroundStore = defineStore({
           '--popover-foreground',
           '--secondary-foreground',
           '--accent-foreground',
+          '--primary-foreground',
           '--muted-foreground',
+          '--inactive',
           '--foreground-hex',
           '--muted-foreground-hex',
           '--el-text-color-primary',
