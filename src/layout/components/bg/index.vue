@@ -105,7 +105,13 @@ watch(
   opacity: var(--bg-opacity, 1);
   filter: blur(var(--bg-blur, 0)) brightness(var(--bg-brightness, 1));
   will-change: transform, filter;
-  transition: opacity 0.3s ease, filter 0.3s ease, transform 0.3s ease;
+  /*
+   * 过渡时长由 --bg-fade-ms 控制：
+   * 轮播开启"淡入过渡"时给较明显时长，否则回落到常规 0.3s，
+   * 保证手动切换壁纸时仍然跟手。
+   */
+  transition: opacity var(--bg-fade-ms, 300ms) ease, filter 0.3s ease,
+    transform 0.3s ease;
 }
 
 /*

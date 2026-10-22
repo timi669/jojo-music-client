@@ -55,6 +55,13 @@ interface BackgroundState {
   activeUrl: string | null
   /** 加载中标记 */
   loading: boolean
+  /**
+   * 轮播定时器句柄（运行时，不持久化）。
+   *
+   * 放在 state 里是为了让 syncSlideshow 能先清后建，
+   * 避免多次调用后残存多个定时器同时切图。
+   */
+  slideshowTimer: number | null
 }
 
 /** 各区域采样（缺省时用整图兜底） */
@@ -198,7 +205,17 @@ function normalizeSettings(
       raw.overlayManuallySet === undefined
         ? num(raw.overlay, 0, 0, 0.8) > 0
         : Boolean(raw.overlayManuallySet),
-    themeFollow: Boolean(raw.themeFollow ?? false)
+    themeFollow: Boolean(raw.themeFollow ?? false),
+    slideshow: Boolean(raw.slideshow ?? false),
+    // 间隔下限 1 分钟：过短会频繁重绘，也容易让人分心
+    slideshowInterval: num(raw.slideshowInterval, 10, 1, 180),
+    slideshowOrder: (['sequential', 'shuffle'] as const).includes(
+      raw.slideshowOrder as 'sequential'
+    )
+      ? (raw.slideshowOrder as BackgroundSettings['slideshowOrder'])
+      : 'sequential',
+    slideshowFade:
+      raw.slideshowFade === undefined ? true : Boolean(raw.slideshowFade)
   }
 
   // 迁移：旧版把构图存在全局，现改为按图保存，尽量保留用户已调好的取景
@@ -243,7 +260,8 @@ export const backgroundStore = defineStore({
     settings: { ...DEFAULT_BACKGROUND_SETTINGS },
     images: [],
     activeUrl: null,
-    loading: false
+    loading: false,
+    slideshowTimer: null
   }),
   getters: {
     /** 当前生效图片的元信息 */
@@ -305,6 +323,11 @@ export const backgroundStore = defineStore({
     /** 当前所属预设档位（与任一预设不符时为 custom） */
     currentPreset(): BackgroundPreset {
       return matchPreset(this.settings)
+    },
+
+    /** 轮播是否真正可用（已开启且壁纸数 >= 2） */
+    slideshowActive(state): boolean {
+      return state.settings.slideshow && state.images.length >= 2
     },
 
     /** 当前壁纸是否属于"忙碌型"（用于给出预设建议） */
@@ -602,6 +625,65 @@ export const backgroundStore = defineStore({
       } finally {
         this.loading = false
       }
+      // 配置归一化后同步轮播定时器（壁纸数量可能变化）
+      this.syncSlideshow()
+    },
+
+    /**
+     * 启动/停止/重建轮播定时器。
+     *
+     * 说明：只在"配置变化"时调用，不放在渲染流程里 ——
+     * 每次切图都重建定时器会导致间隔被无限重置、永远不触发。
+     */
+    syncSlideshow() {
+      if (this.slideshowTimer !== null) {
+        clearInterval(this.slideshowTimer)
+        this.slideshowTimer = null
+      }
+      if (!this.slideshowActive) return
+      const ms = Math.max(1, this.settings.slideshowInterval) * 60 * 1000
+      this.slideshowTimer = setInterval(() => {
+        void this.advanceSlideshow()
+      }, ms) as unknown as number
+    },
+
+    /** 切到下一张壁纸（轮播用） */
+    async advanceSlideshow() {
+      const list = this.images
+      if (list.length < 2) return
+      const currentId = this.settings.activeImageId
+      const currentIdx = list.findIndex(i => i.id === currentId)
+
+      let nextIdx: number
+      if (this.settings.slideshowOrder === 'shuffle') {
+        // 随机挑一张不同的，避免连续重复
+        const candidates = list
+          .map((_, idx) => idx)
+          .filter(idx => idx !== currentIdx)
+        nextIdx = candidates[Math.floor(Math.random() * candidates.length)]
+      } else {
+        nextIdx = currentIdx < 0 ? 0 : (currentIdx + 1) % list.length
+      }
+
+      const next = list[nextIdx]
+      if (next) await this.applyImage(next.id)
+    },
+
+    /** 手动立即切下一张（面板上的按钮） */
+    async nextWallpaper() {
+      await this.advanceSlideshow()
+    },
+
+    /** 更新轮播相关配置并同步定时器 */
+    updateSlideshow(patch: {
+      slideshow?: boolean
+      slideshowInterval?: number
+      slideshowOrder?: 'sequential' | 'shuffle'
+      slideshowFade?: boolean
+    }) {
+      this.settings = { ...this.settings, ...patch }
+      this.syncSlideshow()
+      this.applyToDom()
     },
 
     /**
@@ -687,6 +769,8 @@ export const backgroundStore = defineStore({
 
       await deleteFromDB(id)
       this.images = this.images.filter(i => i.id !== id)
+      // 壁纸数可能降到 1 张以下，轮播需重新评估
+      this.syncSlideshow()
       this.applyToDom()
     },
 
@@ -715,6 +799,7 @@ export const backgroundStore = defineStore({
     /** 恢复默认 */
     reset() {
       this.settings = { ...DEFAULT_BACKGROUND_SETTINGS }
+      this.syncSlideshow()
       this.applyToDom()
     },
 
@@ -847,12 +932,17 @@ export const backgroundStore = defineStore({
         if (glassIsDark) {
           root.style.setProperty('--bg-glass-color', 'rgba(12, 14, 20, 0.55)')
           root.style.setProperty('--bg-glass-border', 'rgba(255, 255, 255, 0.12)')
+          // 玻璃为深色 => 浅色文字模式，滚动条等应偏亮
+          root.removeAttribute('data-bg-glass-light')
         } else {
           root.style.setProperty('--bg-glass-color', 'rgba(255, 255, 255, 0.55)')
           root.style.setProperty('--bg-glass-border', 'rgba(0, 0, 0, 0.08)')
+          // 玻璃为浅色 => 深色文字模式，滚动条等应偏深
+          root.setAttribute('data-bg-glass-light', '1')
         }
       } else {
         root.removeAttribute('data-bg-glass')
+        root.removeAttribute('data-bg-glass-light')
         root.style.removeProperty('--bg-glass-color')
         root.style.removeProperty('--bg-glass-border')
       }
@@ -875,6 +965,14 @@ export const backgroundStore = defineStore({
       }
       root.style.setProperty('--bg-wallpaper-active', '1')
       root.setAttribute('data-bg-wallpaper', '1')
+
+      /*
+       * 淡入过渡时长：轮播且开启淡入时给较明显的时长，
+       * 否则回落到常规 300ms（手动切换壁纸应保持跟手）。
+       */
+      const fadeMs =
+        this.settings.slideshow && this.settings.slideshowFade ? 800 : 300
+      root.style.setProperty('--bg-fade-ms', `${fadeMs}ms`)
 
       // 文字色：写入 tailwind 与 Element Plus 两类变量
       const fgHex = this.resolvedForeground

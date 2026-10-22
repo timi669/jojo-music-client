@@ -234,6 +234,44 @@ html.dark:root[data-bg-glass='1'] .el-table {
 }
 
 /* ------------------------------------------------------------------ *
+ *  滚动条 / 徽章跟随文字模式
+ *
+ *  base.scss 里滚动条写死了灰（浅色 rgb(206,206,206)、深色 rgb(66,66,66)），
+ *  在明暗差异大的壁纸上会出现"看得见背景却看不见控件"。
+ *  这里统一用令牌，并按"玻璃是深还是浅"翻转 ——
+ *  玻璃深说明文字浅，滚动条也该偏亮。
+ * ------------------------------------------------------------------ */
+:root {
+  --scrollbar-thumb: rgba(0, 0, 0, 0.25);
+  --scrollbar-thumb-hover: rgba(0, 0, 0, 0.45);
+}
+
+:root[data-bg-wallpaper='1'] {
+  --scrollbar-thumb: rgba(255, 255, 255, 0.3);
+  --scrollbar-thumb-hover: rgba(255, 255, 255, 0.5);
+}
+
+/* 玻璃为浅色 -> 说明是深色文字模式 -> 滚动条应偏深 */
+:root[data-bg-wallpaper='1'][data-bg-glass-light='1'] {
+  --scrollbar-thumb: rgba(0, 0, 0, 0.3);
+  --scrollbar-thumb-hover: rgba(0, 0, 0, 0.5);
+}
+
+::-webkit-scrollbar-thumb {
+  background-color: var(--scrollbar-thumb) !important;
+  border-radius: 10px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background-color: var(--scrollbar-thumb-hover) !important;
+}
+
+/* 壁纸上徽章/标签加一层薄磨砂，避免实心块显得突兀 */
+:root[data-bg-wallpaper='1'] .el-tag {
+  backdrop-filter: blur(8px);
+}
+
+/* ------------------------------------------------------------------ *
  *  排除区域（data-bg-exempt）
  *
  *  有些界面需要保持自身既定的观感、不应被自定义壁纸干扰，典型是
