@@ -292,7 +292,7 @@ const handleDelete = async (comment: any) => {
               </div>
               <div class="flex-1">
                 <div class="flex items-center gap-2">
-                  <span class="text-sm font-medium text-blue-500">{{
+                  <span class="text-sm font-medium text-brand">{{
                     comment.username
                   }}</span>
                 </div>

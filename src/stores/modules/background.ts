@@ -27,15 +27,14 @@ import {
   pickForegroundForRegions,
   suggestOverlayForRegions,
   deriveMutedForeground,
+  toRegionSample,
   hexToRgb,
   rgbToHex,
   hexToHslComponents,
-  normalizePrimary,
   type BackgroundSettings,
   type BackgroundImageMeta,
   type ImageLayout,
-  type ImageAnalysis,
-  type RegionSample
+  type ImageAnalysis
 } from '@/utils/background'
 import {
   getBackgroundImage,
@@ -135,21 +134,6 @@ function metaRegionsOrFallback(meta: BackgroundImageMeta): Regions {
     header: sample,
     footer: sample,
     all: sample
-  }
-}
-
-function toRegionSample(hex: string): RegionSample {
-  const [r, g, b] = hexToRgb(hex)
-  const ch = (c: number) => {
-    const s = c / 255
-    return s <= 0.03928 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4)
-  }
-  return {
-    averageColor: hex,
-    luminance: Number(
-      (0.2126 * ch(r) + 0.7152 * ch(g) + 0.0722 * ch(b)).toFixed(4)
-    ),
-    dominantColor: hex
   }
 }
 
@@ -321,8 +305,10 @@ export const backgroundStore = defineStore({
       if (!meta) return ''
 
       const regions = metaRegionsOrFallback(meta)
-      const overlayColors = this.effectiveRegionColors as Record<string, string>
-      const picked = pickForegroundForRegions(regions, overlayColors)
+      const picked = pickForegroundForRegions(regions, {
+        opacity: this.settings.overlay,
+        tone: this.resolvedOverlayTone
+      })
       return picked.hex
     },
 
@@ -335,8 +321,10 @@ export const backgroundStore = defineStore({
       if (!fg) return ''
       const meta = this.activeImage
       if (!meta) return fg
+      // 用"合成遮罩后的整图底色"作为参照，保证次级色也建立在真实可读性之上
+      const base = metaRepresentativeColor(meta)
       const overlayColors = this.effectiveRegionColors as Record<string, string>
-      const bgHex = overlayColors.all || metaRepresentativeColor(meta)
+      const bgHex = overlayColors.all || base
       // 目标 4.5 会让次级色与主色几乎相同，取 4.0 保留可见的层次差异
       return deriveMutedForeground(fg, bgHex, 4.0)
     },
@@ -351,8 +339,10 @@ export const backgroundStore = defineStore({
       const fg = this.resolvedForeground
       if (!fg) return 0
       const regions = metaRegionsOrFallback(meta)
-      const overlayColors = this.effectiveRegionColors as Record<string, string>
-      const picked = pickForegroundForRegions(regions, overlayColors)
+      const picked = pickForegroundForRegions(regions, {
+        opacity: this.settings.overlay,
+        tone: this.resolvedOverlayTone
+      })
       return picked.worstRatio
     },
 
@@ -362,36 +352,11 @@ export const backgroundStore = defineStore({
       if (!meta) return {}
       const fg = this.resolvedForeground
       if (!fg) return {}
-      const fgRgb = hexToRgb(fg)
-      const overlayColors = this.effectiveRegionColors as Record<string, string>
-      const out: Record<string, number> = {}
-      for (const k of REGION_KEYS) {
-        const bg = overlayColors[k]
-        if (!bg) continue
-        out[k] = Number(
-          (
-            (() => {
-              const bgRgb = hexToRgb(bg)
-              const lum = (rgb: [number, number, number]) => {
-                const ch = (c: number) => {
-                  const s = c / 255
-                  return s <= 0.03928
-                    ? s / 12.92
-                    : Math.pow((s + 0.055) / 1.055, 2.4)
-                }
-                return (
-                  0.2126 * ch(rgb[0]) + 0.7152 * ch(rgb[1]) + 0.0722 * ch(rgb[2])
-                )
-              }
-              const l1 = lum(fgRgb)
-              const l2 = lum(bgRgb)
-              const [hi, lo] = l1 > l2 ? [l1, l2] : [l2, l1]
-              return (hi + 0.05) / (lo + 0.05)
-            })()
-          ).toFixed(2)
-        )
-      }
-      return out
+      const regions = metaRegionsOrFallback(meta)
+      return pickForegroundForRegions(regions, {
+        opacity: this.settings.overlay,
+        tone: this.resolvedOverlayTone
+      }).detail
     },
 
     /**
@@ -496,11 +461,17 @@ export const backgroundStore = defineStore({
       this.applyToDom()
     },
 
-    /** 把当前图的主色应用为主题色（跟随开启时换图会自动调用） */
+    /** 把当前图的主色应用为主题色（跟随开启时换图会自动调用）
+     *
+     * 注意：这里传的是**原始主色**，不做旧的 HSL 归一化。
+     * 归一化改由 themeStore 的 accent getter 在 OKLCH 空间完成
+     * （深色底上提亮、彩度过高时下调、并校验 UI 组件对比度 ≥3:1），
+     * 若在这里先归一一次再进 themeStore，会被二次处理、结果不可预期。
+     */
     applyThemeFromActiveImage() {
       const meta = this.activeImage
       if (!meta) return
-      themeStore().setPrimary(normalizePrimary(meta.dominantColor))
+      themeStore().setPrimary(meta.dominantColor)
     },
 
     /** 切换"主题色跟随壁纸" */

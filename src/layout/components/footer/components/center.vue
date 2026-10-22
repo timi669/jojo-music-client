@@ -135,8 +135,7 @@ const handleLike = async () => {
           :icon="
             isPlaying ? 'ic:round-pause-circle' : 'material-symbols:play-circle'
           "
-          class="text-5xl"
-          :color="'#2a68fa'"
+          class="text-5xl text-brand transition-colors"
         />
       </button>
       <button

@@ -324,6 +324,28 @@
       <div class="bg-setting__row">
         <el-button size="small" @click="onResetAll">全部重置为默认</el-button>
       </div>
+
+      <!-- 早期导入的壁纸没有分区数据，四区对比度会显示成同一个数（缺数据的回退）。
+           提供显式入口按原图重算，让对比度真正反映各区域差异。 -->
+      <el-alert
+        v-if="hasStaleRegions"
+        type="info"
+        :closable="false"
+        show-icon
+      >
+        <template #default>
+          部分壁纸缺少分区采样数据（早期版本导入），四个区域的对比度会显示为同一个值。
+          <el-button
+            size="small"
+            type="primary"
+            link
+            :loading="reanalyzing"
+            @click="reanalyzeAll"
+          >
+            重新分析（按原图重算各区域）
+          </el-button>
+        </template>
+      </el-alert>
     </template>
   </div>
 </template>
@@ -343,9 +365,9 @@ import {
 } from '@/utils/backgroundStorage'
 import {
   analyzeImage,
-  normalizePrimary,
   createRenderableDataUrl,
   loadImage,
+  sampleRegionsByGrid,
   DARK_FOREGROUND,
   LIGHT_FOREGROUND,
   type BackgroundFit,
@@ -531,6 +553,17 @@ async function importFile(file: File, alsoUpload: boolean) {
     const analysis = analyzeImage(img)
     const rendered = createRenderableDataUrl(img, 2560, 0.85)
 
+    /*
+     * 分区采样改用**网格**方式并计入当前的模糊/亮度设置：
+     * 相比"每区域一个平均色"，网格会保留区域内最亮/最暗的小格，
+     * 避免局部亮斑或暗斑被平均掉、给出"看似达标"的假对比度。
+     */
+    const regions = sampleRegionsByGrid(img, {
+      blurPx: bg.settings.blur,
+      brightness: 1 + bg.settings.brightness / 100,
+      cellsPerAxis: 3
+    })
+
     // dataURL -> Blob
     const blobRes = await fetch(rendered.dataUrl)
     const blob = await blobRes.blob()
@@ -550,8 +583,8 @@ async function importFile(file: File, alsoUpload: boolean) {
       averageLuminance: analysis.averageLuminance,
       averageColor: analysis.averageColor,
       dominantColor: analysis.dominantColor,
-      // 分区采样：用于挑一个"在各区域都可读"的文字色
-      regions: analysis.regions
+      // 网格分区采样（含最亮/最暗极值），用于挑一个"在各区域都可读"的文字色
+      regions
     }
 
     await putBackgroundImage({ meta, blob, original: file })
@@ -660,11 +693,15 @@ function applySuggestedOverlay() {
   ElMessage.success('已优化遮罩，对比度已改善')
 }
 
-/** 一键把壁纸主色作为主题色（同时打开"跟随"，换图时会自动重算） */
+/** 一键把壁纸主色作为主题色（同时打开"跟随"，换图时会自动重算）
+ *
+ * 传**原始主色**即可：归一化（OKLCH 提亮/降彩/校验对比度）由 themeStore 统一负责，
+ * 这里若再归一一次会造成二次处理。
+ */
 function applyDominantAsPrimary() {
   const meta = bg.activeImage
   if (!meta) return
-  theme.setPrimary(normalizePrimary(meta.dominantColor))
+  theme.setPrimary(meta.dominantColor)
   followDominant.value = true
   bg.update({ themeFollow: true })
   ElMessage.success('主题色已跟随壁纸主色')
@@ -681,6 +718,72 @@ function onResetAll() {
   bg.reset()
   ElMessage.success('已恢复默认背景设置')
 }
+
+/**
+ * 重新分析所有壁纸的分区数据。
+ *
+ * 为什么需要：分区采样是在后续版本才加入的，早期导入的图片只有
+ * 整体平均色、没有分区与极值，于是四个区域的对比度会显示成同一个数
+ * （并非计算错误，而是缺数据时的回退表现）。
+ * 这里用原图重算一遍，让对比度真正反映各区域差异。
+ */
+const reanalyzing = ref(false)
+async function reanalyzeAll() {
+  if (!bg.images.length) return
+  reanalyzing.value = true
+  try {
+    let done = 0
+    for (const meta of [...bg.images]) {
+      const entry = await getBackgroundImage(meta.id)
+      if (!entry) continue
+      // 优先用原始文件（分辨率更高，采样更准）；没有再退回已存储的降采样图
+      const blob = entry.original ?? entry.blob
+      const url = URL.createObjectURL(blob)
+      try {
+        const img = await loadImage(url)
+        const regions = sampleRegionsByGrid(img, {
+          blurPx: bg.settings.blur,
+          brightness: 1 + bg.settings.brightness / 100,
+          cellsPerAxis: 3
+        })
+        const analysis = analyzeImage(img)
+        await putBackgroundImage({
+          meta: {
+            ...meta,
+            width: img.naturalWidth,
+            height: img.naturalHeight,
+            luminance: analysis.luminance,
+            averageLuminance: analysis.averageLuminance,
+            averageColor: analysis.averageColor,
+            dominantColor: analysis.dominantColor,
+            regions
+          },
+          blob: entry.blob,
+          original: entry.original
+        })
+        done++
+      } finally {
+        URL.revokeObjectURL(url)
+      }
+    }
+    await bg.loadImages()
+    // 重新应用当前图，让新算出的分区数据立刻参与判定
+    if (bg.settings.activeImageId) {
+      await bg.applyImage(bg.settings.activeImageId)
+    }
+    ElMessage.success(`已重新分析 ${done} 张壁纸的分区数据`)
+  } catch (err: any) {
+    console.error('重新分析失败', err)
+    ElMessage.error(err?.message || '重新分析失败')
+  } finally {
+    reanalyzing.value = false
+  }
+}
+
+/** 是否还有壁纸缺少分区数据（决定要不要显示"重新分析"入口） */
+const hasStaleRegions = computed(() =>
+  bg.images.some(m => !m.regions || !m.regions.content)
+)
 </script>
 
 <style scoped>

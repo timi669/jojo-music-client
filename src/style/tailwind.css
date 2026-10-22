@@ -30,8 +30,21 @@
     --hover-menu-bg: 0, 0%, 80%, 35%;
     --active-menu-bg: 211, 100%, 89%, 100%;
 
-    --primary: #2a68fa;
+    --primary: #7E22CE;
     --primary-foreground: 222.2 47.4% 11.2%;
+
+    /*
+     * 品牌强调色令牌。
+     * 交互元素（播放按钮、进度条、开关、滑杆、选中描边、链接）一律引用这些令牌，
+     * 由 themeStore.applyToDom() 在运行时写入实际值 —— 不要在任何地方写死颜色。
+     * 这里的取值只是"尚未初始化"时的兜底，保持与 themeStore 默认主色一致。
+     */
+    --brand-accent: #7E22CE;
+    --brand-accent-hover: #9333EA;
+    --brand-accent-active: #6B21A8;
+    --brand-accent-soft: rgba(126, 34, 206, 0.14);
+    --brand-accent-rgb: 126, 34, 206;
+    --on-accent: #ffffff;
 
     --secondary: 210 40% 96.1%;
     --secondary-foreground: 222.2 47.4% 11.2%;
@@ -74,8 +87,16 @@
     --border: 227 12% 50% / 25%;
     --input: 217.2 32.6% 17.5%;
 
-    --primary: #2a68fa;
+    --primary: #7E22CE;
     --primary-foreground: 210 40% 98%;
+
+    /* 品牌令牌在深色下的兜底值（同样由 themeStore 运行时覆写） */
+    --brand-accent: #7E22CE;
+    --brand-accent-hover: #9333EA;
+    --brand-accent-active: #6B21A8;
+    --brand-accent-soft: rgba(126, 34, 206, 0.18);
+    --brand-accent-rgb: 126, 34, 206;
+    --on-accent: #ffffff;
 
     --secondary: 217.2 32.6% 17.5%;
     --secondary-foreground: 210 40% 98%;

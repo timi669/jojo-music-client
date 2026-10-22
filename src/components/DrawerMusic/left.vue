@@ -102,8 +102,7 @@ const togglePlayMode = () => {
         <el-button text circle class="!p-3" @click="togglePlayPause">
           <Icon
             :icon="isPlaying ? 'ic:round-pause-circle' : 'material-symbols:play-circle'"
-            class="text-7xl"
-            :color="'#2a68fa'"
+            class="text-7xl text-brand transition-colors"
           />
         </el-button>
         <el-button text circle class="!p-3" @click="nextTrack">

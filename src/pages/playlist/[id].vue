@@ -331,7 +331,7 @@ const handlePlayAll = async () => {
                   </div>
                   <div class="flex-1">
                     <div class="flex items-center gap-2">
-                      <span class="text-sm font-medium text-blue-500">{{ comment.username }}</span>
+                      <span class="text-sm font-medium text-brand">{{ comment.username }}</span>
                     </div>
                     <p class="text-sm mt-1 mb-2">{{ comment.content }}</p>
                     <div class="flex items-center justify-between text-sm text-gray-400">
