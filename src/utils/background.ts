@@ -1055,7 +1055,16 @@ export function pickForegroundForRegions(
   detail: Record<string, number>
   meetsAAEverywhere: boolean
 } {
-  const keys = ['sidebar', 'content', 'header', 'footer', 'all'] as const
+  /*
+   * 参与判定的是**真实承载文字的区域**：侧边栏、内容区、顶栏、底栏。
+   *
+   * 刻意**不含 `all`（整图平均色）** ——
+   * 它只是统计概念，界面上并不存在"整块区域都压着文字"的位置。
+   * 若把整图均值计入最差判定，一张"左黑右白"的图会得到中灰均值，
+   * 于是两种文字色都不达标、最差被恒定为极低值（实测 2.04），
+   * 从而无法反映真实可读性，也会让自动兜底无谓地把整屏压暗。
+   */
+  const keys = ['sidebar', 'content', 'header', 'footer'] as const
 
   /** 合法的 6 位/3 位 hex 判定，避免非法底色把对比度算成 NaN/Infinity */
   const isHex = (v: unknown): v is string =>
