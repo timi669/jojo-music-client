@@ -297,6 +297,8 @@ import {
   normalizePrimary,
   createRenderableDataUrl,
   loadImage,
+  DARK_FOREGROUND,
+  LIGHT_FOREGROUND,
   type BackgroundFit,
   type FontColorMode,
   type BackgroundImageMeta
@@ -491,7 +493,17 @@ function resetLayout() {
 }
 
 function onFontModeChange(mode: FontColorMode) {
-  bg.update({ fontColorMode: mode, manualForeground: mode === 'auto' ? null : bg.resolvedForeground })
+  // 切换到"自动"时清掉手动色；
+  // 切到"浅色/深色"时填入对应的标准色，而不是沿用当前解析出的颜色 ——
+  // 后者可能是壁纸主色或上一次手动挑的色，会得到与预期不符的结果。
+  if (mode === 'auto') {
+    bg.update({ fontColorMode: mode, manualForeground: null })
+  } else {
+    bg.update({
+      fontColorMode: mode,
+      manualForeground: mode === 'dark' ? DARK_FOREGROUND : LIGHT_FOREGROUND
+    })
+  }
 }
 
 function applySuggestedOverlay() {

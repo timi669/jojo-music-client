@@ -124,3 +124,32 @@
 .bg-with-wallpaper {
   backdrop-filter: none;
 }
+
+/*
+ * 壁纸模式下，Element Plus 的各类容器若保持不透明底色，会像"白纸"一样
+ * 盖住壁纸，导致中间区域完全看不到图。这里把它们的底色透明化，
+ * 文字色则由 backgroundStore 写入 --el-text-color-* 保证可读。
+ *
+ * 用 :root[data-bg-wallpaper] 限定作用域，未启用壁纸时完全不影响原样式。
+ */
+:root[data-bg-wallpaper='1'] {
+  --el-bg-color: transparent;
+  --el-bg-color-page: transparent;
+  --el-bg-color-overlay: transparent;
+  --el-fill-color-blank: transparent;
+  --el-table-bg-color: transparent;
+  --el-table-tr-bg-color: transparent;
+  --el-table-header-bg-color: transparent;
+  --el-table-row-hover-bg-color: rgba(255, 255, 255, 0.08);
+}
+
+html.dark:root[data-bg-wallpaper='1'] {
+  --el-table-row-hover-bg-color: rgba(255, 255, 255, 0.06);
+}
+
+/* 表格边框在壁纸上也应弱化，避免网格感过重 */
+:root[data-bg-wallpaper='1'] .el-table,
+:root[data-bg-wallpaper='1'] .el-table th.el-table__cell,
+:root[data-bg-wallpaper='1'] .el-table td.el-table__cell {
+  background-color: transparent;
+}
