@@ -2,7 +2,8 @@
 import { formatTime } from '@/utils'
 import { Icon } from '@iconify/vue'
 import type { SongDetail } from '@/api/interface'
-import { ref, inject, type Ref } from 'vue'
+import type { PlayMode } from '@/hooks/interface'
+import { inject, type Ref } from 'vue'
 import { useAudioPlayer } from '@/hooks/useAudioPlayer'
 import vinylImg from '@/assets/vinyl.png'
 import Recently from '../../layout/components/footer/components/recently.vue'
@@ -17,12 +18,13 @@ const {
   togglePlayPause,
   seek,
   setPlayMode,
+  playMode,
 } = useAudioPlayer()
 
 const songDetail = inject<Ref<SongDetail | null>>('songDetail')
 
 // 添加播放模式相关逻辑
-const playModes = {
+const playModes: Record<PlayMode, { icon: string; next: PlayMode; tooltip: string }> = {
   order: {
     icon: 'ri:order-play-line',
     next: 'shuffle',
@@ -45,12 +47,11 @@ const playModes = {
   }
 }
 
-const currentMode = ref('order')
+// 复用 audioPlayer 中的 playMode 作为唯一数据源，保证与底部播放条图标同步
+const currentMode = computed(() => playMode.value)
 
 const togglePlayMode = () => {
-  const nextMode = playModes[currentMode.value].next
-  currentMode.value = nextMode
-  setPlayMode(nextMode)
+  setPlayMode(playModes[currentMode.value].next)
 }
 </script>
 

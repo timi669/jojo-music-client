@@ -27,7 +27,7 @@ export interface trackModel {
   album: string // 专辑
   cover: string // 封面
   url: string // 音频地址
-  duration: number // 时长
+  duration: number // 时长，单位：秒（与后端 tb_song.duration 一致；展示时需 ×1000 转毫秒）
   likeStatus: number
 //   lyrics?: ParsedLyrics // 歌词
 }

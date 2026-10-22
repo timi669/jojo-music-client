@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { Icon } from '@iconify/vue'
+import type { PlayMode } from '@/hooks/interface'
 import Recently from './recently.vue'
-const { volume, setVolume, setPlayMode } = useAudioPlayer()
+const { volume, setVolume, setPlayMode, playMode } = useAudioPlayer()
 
 const isMuted = computed(() => volume.value === 0)
 
@@ -10,7 +11,7 @@ const toggleVolume = () => {
 }
 
 // 添加播放模式相关逻辑
-const playModes = {
+const playModes: Record<PlayMode, { icon: string; next: PlayMode; tooltip: string }> = {
   order: {
     icon: 'ri:order-play-line',
     next: 'shuffle',
@@ -33,12 +34,11 @@ const playModes = {
   }
 }
 
-const currentMode = ref('order')
+// 复用 audioPlayer 中的 playMode 作为唯一数据源，避免与播放抽屉各存一份导致图标不同步
+const currentMode = computed(() => playMode.value)
 
 const togglePlayMode = () => {
-  const nextMode = playModes[currentMode.value].next
-  currentMode.value = nextMode
-  setPlayMode(nextMode)
+  setPlayMode(playModes[currentMode.value].next)
 }
 </script>
 <template>
