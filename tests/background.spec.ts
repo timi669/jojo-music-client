@@ -516,6 +516,91 @@ describe('配置归一化（回归：历史数据形态与缺失字段不应导�
   })
 })
 
+describe('区域极值参与判定（回归：只看均值会给出"看似达标"的假象）', () => {
+  it('极值会让"看似达标"的均值不再美化结果（存在对立极值时无法全区域 AA）', () => {
+    // 区域均值中等、但同区域里既有纯黑又有纯白小块：
+    // 无论选深字还是浅字，总有一端读不清 —— 这是真实存在的冲突，应如实报告。
+    const r: RegionSample = {
+      averageColor: '#808080',
+      luminance: relativeLuminance(0x80, 0x80, 0x80),
+      dominantColor: '#808080',
+      extremes: { darkest: '#000000', lightest: '#ffffff' }
+    }
+    const regions = { sidebar: r, content: r, header: r, footer: r, all: r }
+
+    // 只看均值：中灰上两种候选都约 4.1，会被判为"接近达标"
+    const noExtremes = pickForegroundForRegions({
+      sidebar: { ...r, extremes: undefined },
+      content: { ...r, extremes: undefined },
+      header: { ...r, extremes: undefined },
+      footer: { ...r, extremes: undefined },
+      all: { ...r, extremes: undefined }
+    })
+    // 计入极值：最差情况显著变糟，不会被美化
+    const withExtremes = pickForegroundForRegions(regions)
+
+    expect(withExtremes.worstRatio).toBeLessThan(noExtremes.worstRatio)
+  })
+
+  it('区域极值均为同一色（无对立）时，仍可正常达标', () => {
+    // 均值与极值都是亮色 —— 选深色文字即可全程可读
+    const r: RegionSample = {
+      averageColor: '#dddddd',
+      luminance: relativeLuminance(0xdd, 0xdd, 0xdd),
+      dominantColor: '#dddddd',
+      extremes: { darkest: '#e8e8e8', lightest: '#ffffff' }
+    }
+    const picked = pickForegroundForRegions({
+      sidebar: r,
+      content: r,
+      header: r,
+      footer: r,
+      all: r
+    })
+    expect(picked.hex).toBe(DARK_FOREGROUND)
+    expect(picked.meetsAAEverywhere).toBe(true)
+  })
+
+  it('遮罩应整体改善最差对比度（这是自动兜底的意义）', () => {
+    const r: RegionSample = {
+      averageColor: '#808080',
+      luminance: relativeLuminance(0x80, 0x80, 0x80),
+      dominantColor: '#808080',
+      extremes: { darkest: '#000000', lightest: '#ffffff' }
+    }
+    const regions = { sidebar: r, content: r, header: r, footer: r, all: r }
+
+    const none = pickForegroundForRegions(regions, { opacity: 0, tone: 'black' })
+    // 深色文字配白色遮罩：把偏暗的底色整体提亮，使深字全程可读
+    const heavy = pickForegroundForRegions(regions, {
+      opacity: 0.7,
+      tone: 'white'
+    })
+    expect(heavy.worstRatio).toBeGreaterThan(none.worstRatio)
+  })
+
+  it('遮罩色与文字色相反时合力最佳，同向则无益', () => {
+    const r: RegionSample = {
+      averageColor: '#808080',
+      luminance: relativeLuminance(0x80, 0x80, 0x80),
+      dominantColor: '#808080',
+      extremes: { darkest: '#000000', lightest: '#ffffff' }
+    }
+    const regions = { sidebar: r, content: r, header: r, footer: r, all: r }
+
+    const lightWithWhite = pickForegroundForRegions(regions, {
+      opacity: 0.7,
+      tone: 'white'
+    })
+    const lightWithBlack = pickForegroundForRegions(regions, {
+      opacity: 0.7,
+      tone: 'black'
+    })
+    // 无论选中哪种前景色，总有某个遮罩方向更优；两者不应完全相同
+    expect(lightWithWhite.worstRatio).not.toBe(lightWithBlack.worstRatio)
+  })
+})
+
 describe('suggestOverlayOpacity / suggestOverlay（对比度不足时的遮罩兜底）', () => {
   it('中灰背景下深色文字应搭配白色遮罩，且建议值能真正达标', () => {
     const bg = '#767676'

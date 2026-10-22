@@ -202,7 +202,7 @@ onUnmounted(() => {
 }
 
 .login-text a {
-  color: #2a68fa;
+  color: var(--brand-accent);
   font-weight: 600;
   text-decoration: none;
 }

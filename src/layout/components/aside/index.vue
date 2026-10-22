@@ -39,7 +39,7 @@ watch(
 </script>
 
 <template>
-  <aside class="w-64 hidden h-full overflow-hidden md:block border-r shadow-2xl shadow-blue-500/50">
+  <aside class="w-64 hidden h-full overflow-hidden md:block border-r shadow-2xl">
     <nav class="flex flex-col p-4 space-y-4 flex-1 h-full box-border overflow-hidden">
       <div v-for="(item, index) in MenuData" :key="index" class="w-full flex flex-col gap-1">
         <h3 class="ml-4 text-sm font-semibold text-inactive">

@@ -134,7 +134,7 @@ function switchToReset() {
 }
 
 .signup-text a {
-  color: #2a68fa;
+  color: var(--brand-accent);
   font-weight: 600;
   text-decoration: none;
 }
@@ -155,7 +155,7 @@ function switchToReset() {
 }
 
 .forgot-password a:hover {
-  color: #2a68fa;
+  color: var(--brand-accent);
   text-decoration: underline;
 }
 </style>

@@ -37,6 +37,14 @@ module.exports = {
           foreground: 'hsl(var(--primary-foreground))',
           themeBg: 'var(--theme-bg-color)',
         },
+        // 品牌强调色令牌（由 themeStore.applyToDom 运行时写入）
+        brand: {
+          DEFAULT: 'var(--brand-accent)',
+          hover: 'var(--brand-accent-hover)',
+          active: 'var(--brand-accent-active)',
+          soft: 'var(--brand-accent-soft)',
+          on: 'var(--on-accent)',
+        },
         secondary: {
           DEFAULT: 'hsl(var(--secondary))',
           foreground: 'hsl(var(--secondary-foreground))',

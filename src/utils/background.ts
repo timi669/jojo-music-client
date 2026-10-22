@@ -452,6 +452,20 @@ export interface RegionSample {
   luminance: number
   /** 主色 hex */
   dominantColor: string
+  /**
+   * 区域内的亮度极值（最暗/最亮处）。
+   *
+   * 为什么需要：只用平均值会给出"看起来达标"的假象 ——
+   * 一片平均中等亮度的区域里可能藏着很亮或很暗的小块，
+   * 落在其上的文字照样看不清。
+   * 因此判定对比度时要连极值一起算，取最差结果。
+   */
+  extremes?: {
+    /** 最暗处的平均色（按其所在小格取均值，避免单像素噪声） */
+    darkest: string
+    /** 最亮处的平均色 */
+    lightest: string
+  }
 }
 
 /**
@@ -622,15 +636,212 @@ export function analyzeImage(img: HTMLImageElement): ImageAnalysis {
 }
 
 /**
+ * 由单一颜色构造一个区域采样结构。
+ *
+ * 定义在此（而非 store）是为了让 utils 层自洽：
+ * 采样与分析函数都在本文件，不应反向依赖 store。
+ */
+export function toRegionSample(hex: string): RegionSample {
+  const [r, g, b] = hexToRgb(hex)
+  return {
+    averageColor: hex,
+    luminance: Number(relativeLuminance(r, g, b).toFixed(4)),
+    dominantColor: hex
+  }
+}
+
+/**
+ * 把一张图按"界面区域"切成网格，返回每格的合成后颜色。
+ *
+ * 相比"每区域一个平均色"，网格采样的好处是**不会把局部亮斑/暗斑平均掉**：
+ * 文字可能恰好压在最亮或最暗的那一格上，只看区域均值会误判为达标。
+ *
+ * @param img 已解码的图片
+ * @param blurPx 背景模糊半径（模糊会把相邻像素混在一起，此处按 canvas filter 近似）
+ * @param brightness 亮度调节（与 CSS filter 一致，1 为不变）
+ * @param cellsPerAxis 每个区域在水平/垂直方向的切分格数
+ */
+export function sampleRegionsByGrid(
+  img: HTMLImageElement,
+  options: {
+    blurPx?: number
+    brightness?: number
+    cellsPerAxis?: number
+  } = {}
+): ImageAnalysis['regions'] {
+  const { blurPx = 0, brightness = 1, cellsPerAxis = 3 } = options
+
+  const maxSide = 96
+  const ratio = Math.min(1, maxSide / Math.max(img.naturalWidth, img.naturalHeight))
+  const w = Math.max(1, Math.round(img.naturalWidth * ratio))
+  const h = Math.max(1, Math.round(img.naturalHeight * ratio))
+
+  const canvas = document.createElement('canvas')
+  canvas.width = w
+  canvas.height = h
+  const ctx = canvas.getContext('2d', { willReadFrequently: true })
+
+  const empty = toRegionSample('#ffffff')
+  const emptyRegions = {
+    sidebar: empty,
+    content: empty,
+    header: empty,
+    footer: empty,
+    all: empty
+  }
+  if (!ctx) return emptyRegions
+
+  // 模糊用 canvas filter 直接模拟，比手写卷积核更贴近浏览器真实渲染
+  if (blurPx > 0) {
+    ctx.filter = `blur(${(blurPx * ratio).toFixed(2)}px) brightness(${brightness})`
+  } else if (brightness !== 1) {
+    ctx.filter = `brightness(${brightness})`
+  }
+  ctx.drawImage(img, 0, 0, w, h)
+  ctx.filter = 'none'
+
+  let data: Uint8ClampedArray
+  try {
+    data = ctx.getImageData(0, 0, w, h).data
+  } catch {
+    return emptyRegions
+  }
+
+  /** 取一组格子（归一化坐标范围）的统计 */
+  const statRange = (
+    x0: number,
+    y0: number,
+    x1: number,
+    y1: number
+  ): RegionSample => {
+    const px0 = Math.floor(x0 * w)
+    const py0 = Math.floor(y0 * h)
+    const px1 = Math.max(px0 + 1, Math.ceil(x1 * w))
+    const py1 = Math.max(py0 + 1, Math.ceil(y1 * h))
+
+    // 统计每个小格的均值，再从格均值里挑最亮/最暗 —— 比逐像素挑极值稳健
+    const cellW = Math.max(1, Math.floor((px1 - px0) / cellsPerAxis))
+    const cellH = Math.max(1, Math.floor((py1 - py0) / cellsPerAxis))
+    const cells: { r: number; g: number; b: number }[] = []
+
+    let rSum = 0
+    let gSum = 0
+    let bSum = 0
+    let n = 0
+    const buckets = new Map<string, { r: number; g: number; b: number; n: number }>()
+
+    for (let cy = py0; cy < py1; cy += cellH) {
+      for (let cx = px0; cx < px1; cx += cellW) {
+        let cr = 0
+        let cg = 0
+        let cb = 0
+        let cn = 0
+        for (let y = cy; y < Math.min(cy + cellH, py1); y++) {
+          for (let x = cx; x < Math.min(cx + cellW, px1); x++) {
+            const i = (y * w + x) * 4
+            if (data[i + 3] < 128) continue
+            const r = data[i]
+            const g = data[i + 1]
+            const b = data[i + 2]
+            cr += r
+            cg += g
+            cb += b
+            cn++
+            // 整体统计
+            rSum += r
+            gSum += g
+            bSum += b
+            n++
+            const key = `${r >> 4}_${g >> 4}_${b >> 4}`
+            const bk = buckets.get(key)
+            if (bk) {
+              bk.r += r
+              bk.g += g
+              bk.b += b
+              bk.n++
+            } else {
+              buckets.set(key, { r, g, b, n: 1 })
+            }
+          }
+        }
+        if (cn > 0) {
+          cells.push({ r: cr / cn, g: cg / cn, b: cb / cn })
+        }
+      }
+    }
+
+    if (n === 0) return empty
+
+    const avgColor = rgbToHex(rSum / n, gSum / n, bSum / n)
+
+    // 主色：频次 × 饱和度加权
+    let best: { r: number; g: number; b: number; score: number } | null = null
+    for (const bk of buckets.values()) {
+      const r = bk.r / bk.n
+      const g = bk.g / bk.n
+      const b = bk.b / bk.n
+      const max = Math.max(r, g, b)
+      const min = Math.min(r, g, b)
+      const sat = max === 0 ? 0 : (max - min) / max
+      const score = bk.n * (0.25 + sat)
+      if (!best || score > best.score) best = { r, g, b, score }
+    }
+
+    // 最暗/最亮小格
+    let darkest = cells[0]
+    let lightest = cells[0]
+    for (const c of cells) {
+      const lc = relativeLuminance(c.r, c.g, c.b)
+      const ld = relativeLuminance(darkest.r, darkest.g, darkest.b)
+      const ll = relativeLuminance(lightest.r, lightest.g, lightest.b)
+      if (lc < ld) darkest = c
+      if (lc > ll) lightest = c
+    }
+
+    return {
+      averageColor: avgColor,
+      luminance: Number(
+        relativeLuminance(
+          hexToRgb(avgColor)[0],
+          hexToRgb(avgColor)[1],
+          hexToRgb(avgColor)[2]
+        ).toFixed(4)
+      ),
+      dominantColor: rgbToHex(best!.r, best!.g, best!.b),
+      extremes: {
+        darkest: rgbToHex(darkest.r, darkest.g, darkest.b),
+        lightest: rgbToHex(lightest.r, lightest.g, lightest.b)
+      }
+    }
+  }
+
+  // 界面布局近似比例（与 analyzeImage 保持一致）
+  const SIDEBAR_END = 0.2
+  const HEADER_END = 0.08
+  const FOOTER_START = 0.9
+
+  return {
+    sidebar: statRange(0, 0, SIDEBAR_END, 1),
+    content: statRange(SIDEBAR_END, 0, 1, 1),
+    header: statRange(0, 0, 1, HEADER_END),
+    footer: statRange(0, FOOTER_START, 1, 1),
+    all: statRange(0, 0, 1, 1)
+  }
+}
+
+/**
  * 结合分区信息挑选"在各区域都可读"的文字色。
  *
  * 思路：全局只使用一套文字色变量，因此不能只看某个区域。
- * 对深/浅两种候选，分别检查它在**每个区域**上的对比度，
- * 取"最差区域"最好的一侧；若两侧都无法在全部区域达标，
- * 则返回最能兼顾的一项并标记需要遮罩。
+ * 对深/浅两种候选，分别检查它在**每个区域**上的对比度（连区域内的
+ * 最亮/最暗小格一起算），取"最差情况"更好的一侧。
  *
- * @param regions 分区采样结果
- * @param overlayHex 若已启用遮罩，传入遮罩叠加后的等效底色（按区域覆盖）
+ * 遮罩以**参数**形式传入（浓度 + 颜色），函数内部自己把遮罩合成到
+ * 区域均值与极值上 —— 这样同一浓度会一致地作用于所有采样点，
+ * 不必去反解"合成后的颜色对应多少浓度"。
+ *
+ * @param regions 分区采样（含极值）
+ * @param overlay 当前遮罩：浓度 0~1 与颜色（黑/白）
  */
 export function pickForegroundForRegions(
   regions: {
@@ -640,7 +851,10 @@ export function pickForegroundForRegions(
     footer: RegionSample
     all: RegionSample
   },
-  overlayHexByRegion?: Partial<Record<keyof typeof regions, string>>
+  overlay: { opacity: number; tone: 'black' | 'white' } = {
+    opacity: 0,
+    tone: 'black'
+  }
 ): {
   hex: string
   /** 各区域中最低的对比度（决定"是否真的全区域可读"） */
@@ -655,17 +869,49 @@ export function pickForegroundForRegions(
   const isHex = (v: unknown): v is string =>
     typeof v === 'string' && /^#?[0-9a-fA-F]{3}([0-9a-fA-F]{3})?$/.test(v.trim())
 
+  /** 把遮罩合成到某个底色上 */
+  const withOverlay = (bgHex: string): string => {
+    if (overlay.opacity <= 0) return bgHex
+    const [r, g, b] = hexToRgb(bgHex)
+    const target = overlay.tone === 'black' ? [0, 0, 0] : [255, 255, 255]
+    const a = Math.max(0, Math.min(1, overlay.opacity))
+    return rgbToHex(
+      r * (1 - a) + target[0] * a,
+      g * (1 - a) + target[1] * a,
+      b * (1 - a) + target[2] * a
+    )
+  }
+
+  /** 针对某个前景色，评估它在某区域的最差情况 */
+  const worstForRegion = (
+    fgRgb: [number, number, number],
+    region: RegionSample | undefined
+  ): number => {
+    if (!region) return 1
+    const samples: string[] = []
+    if (isHex(region.averageColor)) samples.push(region.averageColor.trim())
+    if (region.extremes) {
+      if (isHex(region.extremes.darkest)) samples.push(region.extremes.darkest.trim())
+      if (isHex(region.extremes.lightest)) samples.push(region.extremes.lightest.trim())
+    }
+    if (samples.length === 0) return 1
+
+    let min = Number.POSITIVE_INFINITY
+    for (const s of samples) {
+      const effective = withOverlay(s)
+      const r = contrastRatio(fgRgb, hexToRgb(effective))
+      if (Number.isFinite(r) && r < min) min = r
+    }
+    return Number.isFinite(min) ? Number(min.toFixed(2)) : 1
+  }
+
   const evaluate = (fgHex: string) => {
     const fg = hexToRgb(fgHex)
     const detail: Record<string, number> = {}
     let worst = Number.POSITIVE_INFINITY
     for (const k of keys) {
-      const candidate = overlayHexByRegion?.[k] ?? regions[k]?.averageColor
-      // 兜底为白色而非直接使用非法值，保证比值始终是有限数
-      const bgHex = isHex(candidate) ? candidate.trim() : '#ffffff'
-      const raw = contrastRatio(fg, hexToRgb(bgHex))
-      const r = Number.isFinite(raw) ? raw : 1
-      detail[k] = Number(r.toFixed(2))
+      const r = worstForRegion(fg, regions[k])
+      detail[k] = r
       if (r < worst) worst = r
     }
     const worstSafe = Number.isFinite(worst) ? worst : 1
