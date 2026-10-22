@@ -5,7 +5,7 @@ import Components from 'unplugin-vue-components/vite'
 import IconsResolver from 'unplugin-icons/resolver' // 集成图标集
 import Icons from 'unplugin-icons/vite'
 
-export const createVitePlugins = (viteEnv: ViteEnv): (PluginOption | PluginOption[])[] => {
+export const createVitePlugins = (_viteEnv: ViteEnv): (PluginOption | PluginOption[])[] => {
     return [
         vue(),
         // basicSsl() 模拟https的配置,

@@ -44,7 +44,7 @@ const resetRules = reactive<FormRules>({
   repeatPassword: [
     { required: true, message: '请确认密码', trigger: 'blur' },
     {
-      validator: (rule: any, value: string, callback: Function) => {
+      validator: (_rule: any, value: string, callback: Function) => {
         if (value !== resetForm.newPassword) {
           callback(new Error('两次输入的密码不一致'))
         } else {
