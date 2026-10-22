@@ -43,6 +43,7 @@ module.exports = {
           hover: 'var(--brand-accent-hover)',
           active: 'var(--brand-accent-active)',
           soft: 'var(--brand-accent-soft)',
+          tone: 'var(--brand-accent-tone)',
           on: 'var(--on-accent)',
         },
         secondary: {

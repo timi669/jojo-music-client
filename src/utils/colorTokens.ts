@@ -166,6 +166,25 @@ export function normalizeAccent(
  *  令牌派生
  * ------------------------------------------------------------------ */
 
+/**
+ * 由主色派生"柔和色"。
+ *
+ * 用途：卡片点缀、渐变收尾等需要**低饱和**同色系的场合。
+ * 直接用主色会过于抢眼，低饱和版既延续色彩倾向、又不喧宾夺主。
+ *
+ * 同样在 OKLCH 空间：保留色相，彩度压到约 40%、明度略提。
+ */
+export function deriveSoftTone(accentHex: string): string {
+  const { L, C, H } = hexToOklch(accentHex)
+  // 彩度不足（近灰）时没有色相可依托，直接返回原色以免生成杂色
+  if (C < 0.02) return accentHex
+  return oklchToHex({
+    L: Math.min(0.92, L + 0.12),
+    C: C * 0.4,
+    H
+  })
+}
+
 export interface AccentTokens {
   /** 主强调色 hex */
   accent: string
@@ -175,6 +194,8 @@ export interface AccentTokens {
   accentActive: string
   /** 柔和底色（低不透明度，用于选中项/标签） */
   accentSoft: string
+  /** 低饱和同色系实色（卡片点缀、渐变收尾） */
+  accentTone: string
   /** accent 之上的文字色（按对比度自动取白或深色） */
   onAccent: string
   /** accent 的 RGB 分量，便于拼接 rgba */
@@ -206,6 +227,7 @@ export function deriveAccentTokens(accentHex: string): AccentTokens {
     accentHover: hover,
     accentActive: active,
     accentSoft: soft,
+    accentTone: deriveSoftTone(accentHex),
     onAccent,
     accentRgb: rgb
   }

@@ -756,8 +756,10 @@ export function analyzeImage(img: HTMLImageElement): ImageAnalysis {
     const avgB = acc.b / acc.n
     const averageColor = rgbToHex(avgR, avgG, avgB)
 
-    // 主色：以"出现频次 × 饱和度"加权，避免大片灰白压过真正的主题色
+    // 主色：频次 × 饱和度加权，并排除近黑/近白/近灰（与 statRange 口径一致）
     let best: { r: number; g: number; b: number; score: number } | null = null
+    let fallbackBest: { r: number; g: number; b: number; score: number } | null =
+      null
     for (const bucket of acc.buckets.values()) {
       const r = bucket.r / bucket.n
       const g = bucket.g / bucket.n
@@ -766,8 +768,17 @@ export function analyzeImage(img: HTMLImageElement): ImageAnalysis {
       const min = Math.min(r, g, b)
       const saturation = max === 0 ? 0 : (max - min) / max
       const score = bucket.n * (0.25 + saturation)
-      if (!best || score > best.score) best = { r, g, b, score }
+
+      if (!fallbackBest || score > fallbackBest.score) {
+        fallbackBest = { r, g, b, score }
+      }
+
+      const lum = relativeLuminance(r, g, b)
+      if (lum < 0.02 || lum > 0.94) continue
+      const adjusted = saturation < 0.06 ? score * 0.35 : score
+      if (!best || adjusted > best.score) best = { r, g, b, score: adjusted }
     }
+    if (!best) best = fallbackBest
     const dominant = best ?? { r: avgR, g: avgG, b: avgB, score: 0 }
 
     return {
@@ -939,8 +950,16 @@ export function sampleRegionsByGrid(
 
     const avgColor = rgbToHex(rSum / n, gSum / n, bSum / n)
 
-    // 主色：频次 × 饱和度加权
+    // 主色：频次 × 饱和度加权，并**排除接近纯黑/纯白的像素**
+    /*
+     * 为什么排除极端像素：大面积的黑边、白底、高光并不代表壁纸的"主题色"，
+     * 但因为面积大，按频次加权时会把真正有辨识度的颜色压过去 ——
+     * 例如"白底 + 一小块红"会取到白色，而用户心理上的主色是红。
+     * 这里排除明度极高/极低的量化桶，让主色更贴近人眼感知。
+     */
     let best: { r: number; g: number; b: number; score: number } | null = null
+    let fallbackBest: { r: number; g: number; b: number; score: number } | null =
+      null
     for (const bk of buckets.values()) {
       const r = bk.r / bk.n
       const g = bk.g / bk.n
@@ -949,8 +968,24 @@ export function sampleRegionsByGrid(
       const min = Math.min(r, g, b)
       const sat = max === 0 ? 0 : (max - min) / max
       const score = bk.n * (0.25 + sat)
-      if (!best || score > best.score) best = { r, g, b, score }
+
+      // 记录一个"不过滤"的候选，用于全图都是黑/白时的兜底
+      if (!fallbackBest || score > fallbackBest.score) {
+        fallbackBest = { r, g, b, score }
+      }
+
+      const lum = relativeLuminance(r, g, b)
+      // 极暗（近黑）与极亮（近白）不参与主色竞争
+      if (lum < 0.02 || lum > 0.94) continue
+      // 近灰（几乎无彩度）优先度也降低，避免大块灰度区域夺冠
+      const adjusted = sat < 0.06 ? score * 0.35 : score
+      if (!best || adjusted > best.score) {
+        best = { r, g, b, score: adjusted }
+      }
     }
+
+    // 全部被过滤掉时退回未过滤的候选，保证永远有结果
+    if (!best) best = fallbackBest
 
     // 最暗/最亮小格
     let darkest = cells[0]

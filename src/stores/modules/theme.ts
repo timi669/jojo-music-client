@@ -68,6 +68,7 @@ export const themeStore = defineStore({
         '--brand-accent-hover': tokens.accentHover,
         '--brand-accent-active': tokens.accentActive,
         '--brand-accent-soft': tokens.accentSoft,
+        '--brand-accent-tone': tokens.accentTone,
         '--on-accent': tokens.onAccent,
         '--brand-accent-rgb': tokens.accentRgb.join(', '),
         ...deriveElColorScales(tokens.accent, Boolean(this.isDark))
