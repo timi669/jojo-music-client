@@ -56,10 +56,16 @@ watch(() => currentTrack.value.id, async (newId) => {
 provide('songDetail', songDetail)
 </script>
 <template>
+  <!--
+    data-bg-exempt：标记"排除区域"。
+    播放页（歌词、专辑封面、走带控制）要保持自身既定观感，不被自定义壁纸的
+    文字配色 / 容器透明化规则干扰，因此显式豁免。
+    详见 style/tailwind.css 中 [data-bg-exempt] 的说明。
+  -->
   <el-drawer :style="{
     '--track-cover-url': `url(${currentTrack.cover})`,
   }" v-model="showDrawer" direction="btt" size="100%" :modal="false" :showClose="false"
-    class="drawer-bg backdrop-filter backdrop-blur-md">
+    class="drawer-bg backdrop-filter backdrop-blur-md" data-bg-exempt="1">
     <template #header>
       <div class="flex items-center justify-between">
         <div class="flex items-center justify-center gap-2 text-primary-foreground">
