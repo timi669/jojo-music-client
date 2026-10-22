@@ -131,6 +131,8 @@ interface AudioPlayer {
   currentTime: Ref<number>
   duration: Ref<number>
   volume: Ref<number>
+  /** 当前播放模式（唯一数据源，footer 与播放抽屉共用，避免各自维护一份导致图标不同步） */
+  playMode: Ref<PlayMode>
   //   currentLyricIndex: Ref<number>
   audioElement: Ref<HTMLAudioElement | null>
   play: () => Promise<void>
@@ -484,6 +486,7 @@ export const AudioPlayer = () => {
     currentTime,
     duration,
     volume,
+    playMode,
     // currentLyricIndex,
     audioElement,
     play,

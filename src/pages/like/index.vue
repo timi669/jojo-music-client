@@ -62,7 +62,7 @@ const handlePlayAll = async () => {
         album: song.album,
         cover: song.coverUrl || coverImg,
         url: song.audioUrl,
-        duration: parseFloat(song.duration) * 1000,
+        duration: Number(song.duration) || 0,
         likeStatus: song.likeStatus
     }))
 
