@@ -315,99 +315,194 @@ export const backgroundStore = defineStore({
     },
 
     /**
-     * 基础遮罩参数（**不含毛玻璃**）。
+     * 【唯一求解器】联合决定：遮罩浓度 × 遮罩色 × 玻璃色 × 文字色。
      *
-     * 拆出这一层是为了避免递归：
-     * 玻璃颜色需要知道"文字最终是浅色还是深色"，
-     * 而文字色又依赖玻璃颜色（内容区对比度受玻璃影响）。
-     * 因此先用本参数算出一个"未计玻璃"的文字色，
-     * 由它决定玻璃明暗，再据此得出最终文字色。
+     * 为什么必须一次性联合求解：
+     * 这四者互相影响 —— 玻璃色改变内容区亮度、遮罩浓度改变所有区域亮度、
+     * 二者又共同决定该选深字还是浅字。
+     * 之前把它们拆成多个 getter 互相调用（glassChoice / overlayParams /
+     * suggestedOverlayPlan 各算一遍），结果是**参数不一致、结论互相打架**：
+     * 实测同一张壁纸，glassChoice 推出深字、contrastDetail 却推出浅字，
+     * 内容区对比度在两套口径间反复摆动（2.47 vs 3.07）。
+     *
+     * 现在改为：在一个函数里穷举"玻璃色 × 遮罩浓度"的有限组合，
+     * 对每个组合用 pickForegroundForRegions 求最优文字色与最差对比度，
+     * 取"最差对比度最高"的组合 —— 所有对外输出（文字色、玻璃色、
+     * 实际遮罩浓度）都来自这同一个解，天然自洽。
+     *
+     * 组合规模：2（玻璃色）× 17（浓度 0~0.8 每 0.05）= 34 次，
+     * 每次只做几十次颜色运算，开销可忽略，且无需缓存。
      */
-    baseOverlayParams(): {
-      overlay: { opacity: number; tone: 'black' | 'white' }
-      scrim: { strength: number }
+    solvedBackground(): {
+      overlayOpacity: number
+      overlayTone: 'black' | 'white'
+      glassIsDark: boolean
+      glassColor: string
+      textHex: string
+      worstRatio: number
+      detail: Record<string, number>
     } {
-      return {
-        overlay: {
-          opacity: this.settings.overlay,
-          tone: this.resolvedOverlayTone
-        },
-        scrim: { strength: this.settings.scrimStrength }
-      }
-    },
-
-    /**
-     * "未计毛玻璃"时推导出的文字色。
-     *
-     * 仅用于判断玻璃该配深色还是浅色 —— 它是玻璃颜色的**输入**，
-     * 不读任何依赖玻璃的 getter，因此不存在循环。
-     */
-    foregroundWithoutGlass(): string {
-      const mode = this.settings.fontColorMode
-      if (mode === 'dark') return this.settings.manualForeground || DARK_FOREGROUND
-      if (mode === 'light') return this.settings.manualForeground || LIGHT_FOREGROUND
       const meta = this.activeImage
-      if (!meta) return ''
-      const base = this.baseOverlayParams
-      return pickForegroundForRegions(
-        metaRegionsOrFallback(meta),
-        base.overlay,
-        base.scrim
-      ).hex
+      const s = this.settings
+
+      const fallback = {
+        overlayOpacity: s.overlay,
+        overlayTone: this.resolvedOverlayTone,
+        glassIsDark: true,
+        glassColor: '#0c0e14',
+        textHex: '',
+        worstRatio: 0,
+        detail: {} as Record<string, number>
+      }
+      if (!meta) return fallback
+
+      const regions = metaRegionsOrFallback(meta)
+      const tone = this.resolvedOverlayTone
+      const scrim = { strength: s.scrimStrength }
+
+      // 手动指定文字色时不参与搜索，直接用该色并把玻璃配成相反方向
+      const manual =
+        s.fontColorMode === 'dark'
+          ? s.manualForeground || DARK_FOREGROUND
+          : s.fontColorMode === 'light'
+            ? s.manualForeground || LIGHT_FOREGROUND
+            : null
+
+      /** 候选遮罩浓度：用户手动设过就只用自己的值，否则从 0 逐档试探 */
+      const manualOverlay: number | null = s.overlayManuallySet ? s.overlay : null
+      const withoutAutoAdapt = !s.autoAdaptContrast || manual !== null
+      // 不受自动兜底管辖时只评估用户设定值，避免擅自改写
+      const overlayCandidates: number[] = (() => {
+        if (manualOverlay !== null) return [manualOverlay]
+        if (withoutAutoAdapt) return [s.overlay]
+        const list: number[] = []
+        for (let a = s.overlay; a <= 0.8 + 1e-9; a += 0.05) {
+          list.push(Number(a.toFixed(2)))
+        }
+        return list.length ? list : [s.overlay]
+      })()
+
+      let best: ReturnType<typeof this.solvedBackground> | null = null
+
+      for (const glassIsDark of [true, false]) {
+        const glassColor = glassIsDark ? '#0c0e14' : '#ffffff'
+        const glass = {
+          enabled: s.glassPanels,
+          color: glassColor,
+          alpha: s.glassPanels ? 0.55 : 0
+        }
+        for (const opacity of overlayCandidates) {
+          if (manual) {
+            // 手动文字色：不做择优，直接评估该色
+            const evaluated = pickForegroundForRegions(
+              regions,
+              { opacity, tone },
+              scrim,
+              glass
+            )
+            const ratio = evaluated.detail
+            const worst = Math.min(
+              ...Object.values(ratio).filter(v => Number.isFinite(v))
+            )
+            const candidate = {
+              overlayOpacity: opacity,
+              overlayTone: tone,
+              glassIsDark,
+              glassColor,
+              textHex: manual,
+              worstRatio: Number(worst.toFixed(2)),
+              detail: ratio
+            }
+            // 手动文字色：不做文字择优，但同样按"达标前提下遮罩最小"挑选
+            const cOkM = candidate.worstRatio >= 4.5
+            const bOkM = best ? best.worstRatio >= 4.5 : false
+            const betterM = !best
+              ? true
+              : cOkM !== bOkM
+                ? cOkM
+                : cOkM
+                  ? candidate.overlayOpacity < best.overlayOpacity
+                  : candidate.worstRatio > best.worstRatio
+            if (betterM) best = candidate
+          } else {
+            const picked = pickForegroundForRegions(
+              regions,
+              { opacity, tone },
+              scrim,
+              glass
+            )
+            const candidate = {
+              overlayOpacity: opacity,
+              overlayTone: tone,
+              glassIsDark,
+              glassColor,
+              textHex: picked.hex,
+              worstRatio: picked.worstRatio,
+              detail: picked.detail
+            }
+            /*
+             * 择优规则（两段式，优先保壁纸通透）：
+             *
+             * 1) 能在"全区域达标"的候选里，取**遮罩浓度最小**的那个 ——
+             *    浓度越小壁纸越通透，这是本功能的核心诉求
+             *    （评审明确指出"全屏压暗会让壁纸发灰"）。
+             * 2) 若没有任何候选能达标，则退而取"最差对比度最高"者
+             *    （尽力而为，并让面板如实提示不达标）。
+             *
+             * ⚠️ 早期实现直接取"最差对比度最大"的候选，
+             * 而压暗总能提升对比度 —— 结果必然选到最大浓度，
+             * 实测三张壁纸全被顶到 0.8、整体压灰，与初衷相反。
+             */
+            const cOk = candidate.worstRatio >= 4.5
+            const bOk = best ? best.worstRatio >= 4.5 : false
+            const better = !best
+              ? true
+              : cOk !== bOk
+                ? cOk
+                : cOk
+                  ? candidate.overlayOpacity < best.overlayOpacity ||
+                    (candidate.overlayOpacity === best.overlayOpacity &&
+                      candidate.worstRatio > best.worstRatio)
+                  : candidate.worstRatio > best.worstRatio
+            if (better) best = candidate
+          }
+        }
+      }
+
+      return best ?? fallback
     },
 
-    /**
-     * 玻璃底色该偏深还是偏浅。
-     *
-     * 判据是**未计玻璃时选出的文字色**，而不是壁纸整体亮度 ——
-     * 后者与实际选色口径不一致，会出现"选了浅字却配浅玻璃"的经典错误
-     * （实测内容区只有 1.82:1，比不加玻璃还糟）。
-     * 文字浅 -> 玻璃深；文字深 -> 玻璃浅，二者始终相反。
-     */
+    /** 玻璃底色该偏深还是偏浅（来自唯一求解器，与渲染完全一致） */
     glassIsDark(): boolean {
-      return this.foregroundWithoutGlass === LIGHT_FOREGROUND
+      return this.solvedBackground.glassIsDark
     },
 
     /**
-     * 实际生效的全局遮罩浓度。
+     * 实际生效的全局遮罩浓度（来自唯一求解器 solvedBackground）。
      *
-     * 与 `settings.overlay` 的区别：后者是**用户的设定值**，
+     * 与 `settings.overlay` 的区别：后者是**用户设定值**，
      * 前者是"设定值 + 自动兜底"的结果。
-     *
-     * 之所以不把兜底结果写回 settings：
-     * 预设档位是靠比对观感字段推导的，一旦把自动算出的浓度写进
-     * settings.overlay，预设就会立刻变成"自定义"（实测出现），
-     * 用户明明没动过任何滑杆。把兜底作为**计算值**而非**存储值**，
-     * 既让渲染拿到正确浓度，又不污染用户设定与预设状态。
-     *
-     * 递归说明：本 getter 只读 settings 与 suggestedOverlayPlan，
-     * 而后者用 baseOverlayParams（不读本 getter），因此无循环。
+     * 之所以不把兜底结果写回 settings：预设档位靠比对观感字段推导，
+     * 一旦写入，预设会立刻变成"自定义"（实测出现过该问题），
+     * 用户明明没动过任何滑杆。
      */
     effectiveOverlay(): number {
-      const s = this.settings
-      if (!s.autoAdaptContrast) return s.overlay
-      if (s.fontColorMode !== 'auto') return s.overlay
-      // 用户手动设过（哪怕是 0）就完全尊重
-      if (s.overlayManuallySet) return s.overlay
-      return Math.max(s.overlay, this.suggestedOverlayPlan.opacity)
+      return this.solvedBackground.overlayOpacity
     },
 
-    /** 当前生效的遮罩与毛玻璃参数，供对比度判定统一使用 */
+    /** 当前生效的遮罩与毛玻璃参数（全部取自唯一求解器，保证口径一致） */
     overlayParams(): {
       overlay: { opacity: number; tone: 'black' | 'white' }
       scrim: { strength: number }
       glass: { enabled: boolean; color: string; alpha: number }
     } {
+      const solved = this.solvedBackground
       return {
-        overlay: {
-          opacity: this.effectiveOverlay,
-          tone: this.resolvedOverlayTone
-        },
+        overlay: { opacity: solved.overlayOpacity, tone: solved.overlayTone },
         scrim: { strength: this.settings.scrimStrength },
         glass: {
           enabled: this.settings.glassPanels,
-          // 与 applyToDom 写入的 --bg-glass-color 同源（都来自 glassIsDark，无递归）
-          color: this.glassIsDark ? '#0c0e14' : '#ffffff',
+          color: solved.glassColor,
           alpha: this.settings.glassPanels ? 0.55 : 0
         }
       }
@@ -426,15 +521,8 @@ export const backgroundStore = defineStore({
       const meta = this.activeImage
       if (!meta) return ''
 
-      const regions = metaRegionsOrFallback(meta)
-      const params = this.overlayParams
-      const picked = pickForegroundForRegions(
-        regions,
-        params.overlay,
-        params.scrim,
-        params.glass
-      )
-      return picked.hex
+      // 直接取自唯一求解器，避免这里另算一遍导致口径不一致
+      return this.solvedBackground.textHex
     },
 
     /**
@@ -457,37 +545,31 @@ export const backgroundStore = defineStore({
     /**
      * 当前文字色在**最不利区域**的对比度。
      * 面板展示这个值比展示"平均对比度"更有意义 —— 它代表最差情况。
+     * 直接取自唯一求解器，保证与面板其它展示（文字色/玻璃色）同源。
      */
     currentContrast(): number {
-      const meta = this.activeImage
-      if (!meta) return 0
-      const fg = this.resolvedForeground
-      if (!fg) return 0
-      const regions = metaRegionsOrFallback(meta)
-      const params = this.overlayParams
-      const picked = pickForegroundForRegions(
-        regions,
-        params.overlay,
-        params.scrim,
-        params.glass
-      )
-      return picked.worstRatio
+      return this.solvedBackground.worstRatio
     },
 
     /** 各区域对比度明细（面板可展示"哪里最差"） */
     contrastDetail(): Record<string, number> {
-      const meta = this.activeImage
-      if (!meta) return {}
-      const fg = this.resolvedForeground
-      if (!fg) return {}
-      const regions = metaRegionsOrFallback(meta)
-      const params = this.overlayParams
-      return pickForegroundForRegions(
-        regions,
-        params.overlay,
-        params.scrim,
-        params.glass
-      ).detail
+      return this.solvedBackground.detail
+    },
+
+    /**
+     * 自动建议的**全局**遮罩方案（供"一键优化"与面板提示使用）。
+     *
+     * 求解器已经穷举出最优浓度，这里直接取它的结果 ——
+     * 早期实现单独再试探一遍，容易与判定口径不一致。
+     */
+    suggestedOverlayPlan(): { opacity: number; tone: 'black' | 'white' } {
+      const solved = this.solvedBackground
+      return { opacity: solved.overlayOpacity, tone: solved.overlayTone }
+    },
+
+    /** 兼容旧用法：仅返回浓度 */
+    suggestedOverlay(): number {
+      return this.solvedBackground.overlayOpacity
     },
 
     /**
@@ -497,51 +579,9 @@ export const backgroundStore = defineStore({
      * 否则会出现"边缘已经压暗了、却仍把整屏再压一层"的情况 ——
      * 那正是评审批评的"全屏一刀切把壁纸压灰"。
      *
-     * 做法：从 0 开始逐步增加全局浓度，用与判定完全相同的
-     * pickForegroundForRegions（含分区、极值与区域遮罩）试探，
-     * 取**第一个能让所有区域达标**的最小值；若加到上限仍不行则返回上限。
+     * 求解器已穷举出最优浓度，这里直接取它的结果 ——
+     * 早期实现单独再试探一遍，容易与判定口径不一致。
      */
-    suggestedOverlayPlan(): { opacity: number; tone: 'black' | 'white' } {
-      const meta = this.activeImage
-      if (!meta) return { opacity: 0, tone: 'black' }
-
-      const regions = metaRegionsOrFallback(meta)
-      const tone: 'black' | 'white' =
-        this.resolvedOverlayTone === 'white' ? 'white' : 'black'
-      const scrim = { strength: this.settings.scrimStrength }
-
-      /*
-       * ⚠️ 这里**不能**读 `this.overlayParams` ——
-       * `effectiveOverlay` → `suggestedOverlayPlan` → `overlayParams` → `effectiveOverlay`
-       * 会形成闭环并使浏览器卡死（实测复现）。
-       * glassIsDark 只依赖 foregroundWithoutGlass → baseOverlayParams，无循环。
-       */
-      const glass = {
-        enabled: this.settings.glassPanels,
-        color: this.glassIsDark ? '#0c0e14' : '#ffffff',
-        alpha: this.settings.glassPanels ? 0.55 : 0
-      }
-
-      // 逐档试探最小可行浓度（0.05 为一档，上限 0.8）
-      for (let a = 0; a <= 0.8 + 1e-9; a += 0.05) {
-        const opacity = Number(a.toFixed(2))
-        const picked = pickForegroundForRegions(
-          regions,
-          { opacity, tone },
-          scrim,
-          glass
-        )
-        if (picked.meetsAAEverywhere) {
-          return { opacity, tone }
-        }
-      }
-      return { opacity: 0.8, tone }
-    },
-
-    /** 兼容旧用法：仅返回浓度 */
-    suggestedOverlay(): number {
-      return this.suggestedOverlayPlan.opacity
-    },
 
     /**
      * 自动兜底的浓度已并入 `effectiveOverlay` getter，

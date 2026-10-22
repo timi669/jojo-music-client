@@ -297,8 +297,9 @@ describe('pickForegroundForRegions（分区选色：保证没有区域看不清�
   it('detail 覆盖全部区域', () => {
     const regions = mkRegions('#111111', '#222222', '#333333', '#444444', '#555555')
     const r = pickForegroundForRegions(regions)
+    // all 是统计概念,界面上不存在"整块区域都压着文字"的位置,故不参与判定
     expect(Object.keys(r.detail).sort()).toEqual(
-      ['all', 'content', 'footer', 'header', 'sidebar'].sort()
+      ['content', 'footer', 'header', 'sidebar'].sort()
     )
   })
 })
