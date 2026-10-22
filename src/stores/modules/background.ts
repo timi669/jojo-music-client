@@ -27,9 +27,13 @@ import {
   pickForegroundForRegions,
   deriveMutedForeground,
   toRegionSample,
+  matchPreset,
+  isBusyWallpaper,
+  BACKGROUND_PRESETS,
   hexToRgb,
   rgbToHex,
   hexToHslComponents,
+  type BackgroundPreset,
   type BackgroundSettings,
   type BackgroundImageMeta,
   type ImageLayout,
@@ -298,6 +302,34 @@ export const backgroundStore = defineStore({
       return metaLuminance(meta) > 0.5 ? 'white' : 'black'
     },
 
+    /** 当前所属预设档位（与任一预设不符时为 custom） */
+    currentPreset(): BackgroundPreset {
+      return matchPreset(this.settings)
+    },
+
+    /** 当前壁纸是否属于"忙碌型"（用于给出预设建议） */
+    isBusy(): boolean {
+      const meta = this.activeImage
+      if (!meta) return false
+      return isBusyWallpaper(metaRegions(meta) ?? undefined)
+    },
+
+    /**
+     * 玻璃底色应该偏深还是偏浅。
+     *
+     * ⚠️ 这里**绝不能**读 `resolvedForeground`：
+     * `resolvedForeground` → `overlayParams` → 本 getter 会形成无限递归
+     * （实测会把浏览器渲染进程卡死）。
+     * 因此改为按"壁纸底色明暗"独立判断 ——
+     * 壁纸偏暗则文字会取浅色，玻璃就应配深色，二者天然相反。
+     */
+    glassIsDark(): boolean {
+      const meta = this.activeImage
+      if (!meta) return true
+      // 浅色壁纸配深字 -> 玻璃用浅色；暗色壁纸配浅字 -> 玻璃用深色
+      return metaLuminance(meta) <= 0.5
+    },
+
     /** 当前生效的遮罩与毛玻璃参数，供对比度判定统一使用 */
     overlayParams(): {
       overlay: { opacity: number; tone: 'black' | 'white' }
@@ -312,12 +344,8 @@ export const backgroundStore = defineStore({
         scrim: { strength: this.settings.scrimStrength },
         glass: {
           enabled: this.settings.glassPanels,
-          /*
-           * 与 applyToDom 写入的 --bg-glass-color 保持一致：
-           * 玻璃底色跟随**文字明暗反转**（浅字配深玻璃、深字配浅玻璃），
-           * 而不是跟随界面明暗 —— 后者会让浅色文字压在浅玻璃上。
-           */
-          color: this.resolvedForeground === LIGHT_FOREGROUND ? '#0c0e14' : '#ffffff',
+          // 与 applyToDom 写入的 --bg-glass-color 保持一致（同一判定来源，避免递归）
+          color: this.glassIsDark ? '#0c0e14' : '#ffffff',
           alpha: this.settings.glassPanels ? 0.55 : 0
         }
       }
@@ -560,6 +588,22 @@ export const backgroundStore = defineStore({
       this.applyToDom()
     },
 
+    /**
+     * 应用一个预设档位。
+     *
+     * 预设只改观感相关字段，不动用户已选定的壁纸、构图、文字配色模式等。
+     * 注意：应用预设会把"手动遮罩"标记清掉，交还自动适配管理 ——
+     * 否则用户先手动拖过遮罩、再点预设，自动兜底会一直不生效。
+     */
+    applyPreset(name: Exclude<BackgroundPreset, 'custom'>) {
+      const def = BACKGROUND_PRESETS[name]
+      if (!def) return
+      this.update({
+        ...def.values,
+        overlayManuallySet: false
+      })
+    },
+
     /** 恢复默认 */
     reset() {
       this.settings = { ...DEFAULT_BACKGROUND_SETTINGS }
@@ -681,7 +725,8 @@ export const backgroundStore = defineStore({
          * "浅字压浅玻璃"，比不加玻璃还糟（实测内容区仅 1.82:1）。
          * 浅色文字 -> 深玻璃；深色文字 -> 浅玻璃。
          */
-        const glassIsDark = this.resolvedForeground === LIGHT_FOREGROUND
+        // 与 overlayParams 用同一判定来源（按壁纸明暗），避免任何递归风险
+        const glassIsDark = this.glassIsDark
         if (glassIsDark) {
           root.style.setProperty('--bg-glass-color', 'rgba(12, 14, 20, 0.55)')
           root.style.setProperty('--bg-glass-border', 'rgba(255, 255, 255, 0.12)')
