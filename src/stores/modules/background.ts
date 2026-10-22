@@ -315,19 +315,81 @@ export const backgroundStore = defineStore({
     },
 
     /**
-     * 玻璃底色应该偏深还是偏浅。
+     * 基础遮罩参数（**不含毛玻璃**）。
      *
-     * ⚠️ 这里**绝不能**读 `resolvedForeground`：
-     * `resolvedForeground` → `overlayParams` → 本 getter 会形成无限递归
-     * （实测会把浏览器渲染进程卡死）。
-     * 因此改为按"壁纸底色明暗"独立判断 ——
-     * 壁纸偏暗则文字会取浅色，玻璃就应配深色，二者天然相反。
+     * 拆出这一层是为了避免递归：
+     * 玻璃颜色需要知道"文字最终是浅色还是深色"，
+     * 而文字色又依赖玻璃颜色（内容区对比度受玻璃影响）。
+     * 因此先用本参数算出一个"未计玻璃"的文字色，
+     * 由它决定玻璃明暗，再据此得出最终文字色。
+     */
+    baseOverlayParams(): {
+      overlay: { opacity: number; tone: 'black' | 'white' }
+      scrim: { strength: number }
+    } {
+      return {
+        overlay: {
+          opacity: this.settings.overlay,
+          tone: this.resolvedOverlayTone
+        },
+        scrim: { strength: this.settings.scrimStrength }
+      }
+    },
+
+    /**
+     * "未计毛玻璃"时推导出的文字色。
+     *
+     * 仅用于判断玻璃该配深色还是浅色 —— 它是玻璃颜色的**输入**，
+     * 不读任何依赖玻璃的 getter，因此不存在循环。
+     */
+    foregroundWithoutGlass(): string {
+      const mode = this.settings.fontColorMode
+      if (mode === 'dark') return this.settings.manualForeground || DARK_FOREGROUND
+      if (mode === 'light') return this.settings.manualForeground || LIGHT_FOREGROUND
+      const meta = this.activeImage
+      if (!meta) return ''
+      const base = this.baseOverlayParams
+      return pickForegroundForRegions(
+        metaRegionsOrFallback(meta),
+        base.overlay,
+        base.scrim
+      ).hex
+    },
+
+    /**
+     * 玻璃底色该偏深还是偏浅。
+     *
+     * 判据是**未计玻璃时选出的文字色**，而不是壁纸整体亮度 ——
+     * 后者与实际选色口径不一致，会出现"选了浅字却配浅玻璃"的经典错误
+     * （实测内容区只有 1.82:1，比不加玻璃还糟）。
+     * 文字浅 -> 玻璃深；文字深 -> 玻璃浅，二者始终相反。
      */
     glassIsDark(): boolean {
-      const meta = this.activeImage
-      if (!meta) return true
-      // 浅色壁纸配深字 -> 玻璃用浅色；暗色壁纸配浅字 -> 玻璃用深色
-      return metaLuminance(meta) <= 0.5
+      return this.foregroundWithoutGlass === LIGHT_FOREGROUND
+    },
+
+    /**
+     * 实际生效的全局遮罩浓度。
+     *
+     * 与 `settings.overlay` 的区别：后者是**用户的设定值**，
+     * 前者是"设定值 + 自动兜底"的结果。
+     *
+     * 之所以不把兜底结果写回 settings：
+     * 预设档位是靠比对观感字段推导的，一旦把自动算出的浓度写进
+     * settings.overlay，预设就会立刻变成"自定义"（实测出现），
+     * 用户明明没动过任何滑杆。把兜底作为**计算值**而非**存储值**，
+     * 既让渲染拿到正确浓度，又不污染用户设定与预设状态。
+     *
+     * 递归说明：本 getter 只读 settings 与 suggestedOverlayPlan，
+     * 而后者用 baseOverlayParams（不读本 getter），因此无循环。
+     */
+    effectiveOverlay(): number {
+      const s = this.settings
+      if (!s.autoAdaptContrast) return s.overlay
+      if (s.fontColorMode !== 'auto') return s.overlay
+      // 用户手动设过（哪怕是 0）就完全尊重
+      if (s.overlayManuallySet) return s.overlay
+      return Math.max(s.overlay, this.suggestedOverlayPlan.opacity)
     },
 
     /** 当前生效的遮罩与毛玻璃参数，供对比度判定统一使用 */
@@ -338,13 +400,13 @@ export const backgroundStore = defineStore({
     } {
       return {
         overlay: {
-          opacity: this.settings.overlay,
+          opacity: this.effectiveOverlay,
           tone: this.resolvedOverlayTone
         },
         scrim: { strength: this.settings.scrimStrength },
         glass: {
           enabled: this.settings.glassPanels,
-          // 与 applyToDom 写入的 --bg-glass-color 保持一致（同一判定来源，避免递归）
+          // 与 applyToDom 写入的 --bg-glass-color 同源（都来自 glassIsDark，无递归）
           color: this.glassIsDark ? '#0c0e14' : '#ffffff',
           alpha: this.settings.glassPanels ? 0.55 : 0
         }
@@ -448,6 +510,18 @@ export const backgroundStore = defineStore({
         this.resolvedOverlayTone === 'white' ? 'white' : 'black'
       const scrim = { strength: this.settings.scrimStrength }
 
+      /*
+       * ⚠️ 这里**不能**读 `this.overlayParams` ——
+       * `effectiveOverlay` → `suggestedOverlayPlan` → `overlayParams` → `effectiveOverlay`
+       * 会形成闭环并使浏览器卡死（实测复现）。
+       * glassIsDark 只依赖 foregroundWithoutGlass → baseOverlayParams，无循环。
+       */
+      const glass = {
+        enabled: this.settings.glassPanels,
+        color: this.glassIsDark ? '#0c0e14' : '#ffffff',
+        alpha: this.settings.glassPanels ? 0.55 : 0
+      }
+
       // 逐档试探最小可行浓度（0.05 为一档，上限 0.8）
       for (let a = 0; a <= 0.8 + 1e-9; a += 0.05) {
         const opacity = Number(a.toFixed(2))
@@ -455,7 +529,7 @@ export const backgroundStore = defineStore({
           regions,
           { opacity, tone },
           scrim,
-          this.overlayParams.glass
+          glass
         )
         if (picked.meetsAAEverywhere) {
           return { opacity, tone }
@@ -469,17 +543,11 @@ export const backgroundStore = defineStore({
       return this.suggestedOverlayPlan.opacity
     },
 
-    /** 是否需要自动兜底（对比度不足且用户开启了自动适配） */
-    needsAutoAdapt(state): boolean {
-      if (!state.settings.autoAdaptContrast) return false
-      if (state.settings.fontColorMode !== 'auto') return false
-      /*
-       * 用户手动调过全局遮罩就不再自动改写 —— 包括手动设为 0 的情况。
-       * 0 是合法的"完全不压暗"选择，不能因为它是默认值就当成"没设过"。
-       */
-      if (state.settings.overlayManuallySet) return false
-      return this.currentContrast > 0 && this.currentContrast < 4.5
-    }
+    /**
+     * 自动兜底的浓度已并入 `effectiveOverlay` getter，
+     * 不再单独暴露"是否需要兜底"的布尔判定 ——
+     * 原先它同时承担"判断"与"是否回写"两个职责，容易让调用方误用。
+     */
   },
   actions: {
     /** 载入已存图片列表（并归一化历史配置） */
@@ -647,7 +715,11 @@ export const backgroundStore = defineStore({
         '--el-text-color-regular-dark',
         '--el-table-text-color',
         '--el-table-header-text-color',
-        '--el-descriptions-item-bordered-label-background'
+        '--el-descriptions-item-bordered-label-background',
+        // 描边与分割线：深色文字模式需要"翻面"，否则会出现黑字黑边
+        '--border',
+        '--input',
+        '--ring'
       ]
 
       if (!s.enabled || !this.activeUrl) {
@@ -663,6 +735,7 @@ export const backgroundStore = defineStore({
           '--bg-brightness',
           '--bg-overlay-color',
           '--bg-scrim-color',
+          '--bg-placeholder-color',
           '--bg-wallpaper-active',
           '--background',
           '--theme-bg-color',
@@ -675,23 +748,12 @@ export const backgroundStore = defineStore({
       }
 
       /*
-       * 自动兜底：文字色与所有区域都达不到 4.5:1 时自动补一层**全局**遮罩。
-       *
-       * 由于判定已把"区域渐变遮罩"的贡献计入，这里补的浓度通常很小甚至为 0 ——
-       * 这正是期望结果：可读性优先由边缘渐隐与毛玻璃承担，
-       * 全局遮罩只作兜底，避免把整张壁纸压灰。
-       *
-       * 注意：**只回写浓度，不改 overlayTone**。
-       * 早期实现会把自动算出的 tone 也写回 settings，导致用户的 "auto" 选择
-       * 被永久覆盖成固定的黑/白，之后换壁纸也不再自动判断。
+       * 全局遮罩取"用户设定 + 自动兜底"的**计算值**，
+       * 但不回写 settings —— 回写会让预设档位立刻变成"自定义"
+       * （用户明明没动过滑杆），实测出现过该问题。
        */
-      let overlay = s.overlay
+      const overlay = this.effectiveOverlay
       const overlayTone: 'black' | 'white' = this.resolvedOverlayTone
-      if (this.needsAutoAdapt) {
-        const plan = this.suggestedOverlayPlan
-        overlay = Math.max(overlay, plan.opacity)
-        s.overlay = overlay
-      }
 
       const layout = this.activeLayout
       root.style.setProperty('--bg-image-url', `url("${this.activeUrl}")`)
@@ -716,6 +778,21 @@ export const backgroundStore = defineStore({
         '--bg-scrim-color',
         scrimTone === 'white' ? 'rgba(255, 255, 255, 0.85)' : 'rgba(0, 0, 0, 0.85)'
       )
+
+      /*
+       * 占位底色：取壁纸代表色并压暗一档。
+       * 切换壁纸时新图需要解码，这期间先显示占位色，
+       * 图片就绪后再淡入覆盖 —— 避免露出页面底色造成白闪。
+       */
+      if (meta) {
+        const base = metaRepresentativeColor(meta)
+        const [pr, pg, pb] = hexToRgb(base)
+        const dim = (v: number) => Math.round(v * 0.72)
+        root.style.setProperty(
+          '--bg-placeholder-color',
+          rgbToHex(dim(pr), dim(pg), dim(pb))
+        )
+      }
 
       // 卡片毛玻璃：文字坐在受控玻璃面上，可读性不再依赖压暗整张壁纸
       if (s.glassPanels) {
@@ -765,6 +842,22 @@ export const backgroundStore = defineStore({
       if (fgHex) {
         const fg = hexToHslComponents(fgHex)
         const muted = hexToHslComponents(mutedHex || fgHex)
+
+        /*
+         * 描边/分割线随文字明暗"翻面"。
+         * 深色文字模式若仍用浅色描边（或反之），会出现"黑字黑边"这类
+         * 明明有边框却看不见的情况。这里按文字色同向取描边：
+         * 浅色文字 -> 白色系描边；深色文字 -> 深色系描边。
+         */
+        const outlineIsLight = this.glassIsDark
+        const border = outlineIsLight
+          ? '0 0% 100% / 22%'
+          : '222 25% 12% / 22%'
+        const input = outlineIsLight
+          ? '0 0% 100% / 18%'
+          : '222 25% 12% / 16%'
+        const ring = outlineIsLight ? '0 0% 100% / 35%' : '222 25% 12% / 35%'
+
         const overrides: Record<string, string> = {
           '--foreground': fg,
           '--card-foreground': fg,
@@ -776,6 +869,10 @@ export const backgroundStore = defineStore({
           '--inactive': muted,
           '--foreground-hex': fgHex,
           '--muted-foreground-hex': mutedHex || fgHex,
+          // 描边/输入框/聚焦环，保证与文字同向
+          '--border': border,
+          '--input': input,
+          '--ring': ring,
 
           '--el-text-color-primary': fgHex,
           '--el-text-color-regular': fgHex,

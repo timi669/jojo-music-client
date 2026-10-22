@@ -140,6 +140,7 @@
             :format-tooltip="v => `${Math.round(v * 100)}%`"
             @input="v => bg.updateLayout({ scale: v as number })"
           />
+          <span class="slider-value">{{ `${Math.round(layout.scale * 100)}%` }}</span>
         </div>
 
         <div class="slider-row">
@@ -150,6 +151,7 @@
             :max="50"
             @input="v => bg.updateLayout({ offsetX: v as number })"
           />
+          <span class="slider-value">{{ `${layout.offsetX}%` }}</span>
         </div>
 
         <div class="slider-row">
@@ -160,6 +162,7 @@
             :max="50"
             @input="v => bg.updateLayout({ offsetY: v as number })"
           />
+          <span class="slider-value">{{ `${layout.offsetY}%` }}</span>
         </div>
 
         <p class="tip">
@@ -181,6 +184,7 @@
             :format-tooltip="v => `${Math.round(v * 100)}%`"
             @input="v => bg.update({ opacity: v as number })"
           />
+          <span class="slider-value">{{ `${Math.round(bg.settings.opacity * 100)}%` }}</span>
         </div>
 
         <div class="slider-row">
@@ -192,6 +196,7 @@
             :format-tooltip="v => `${v}px`"
             @input="v => bg.update({ blur: v as number })"
           />
+          <span class="slider-value">{{ `${bg.settings.blur}px` }}</span>
         </div>
 
         <div class="slider-row">
@@ -203,6 +208,7 @@
             :format-tooltip="v => `${v > 0 ? '+' : ''}${v}%`"
             @input="v => bg.update({ brightness: v as number })"
           />
+          <span class="slider-value">{{ `${bg.settings.brightness > 0 ? "+" : ""}${bg.settings.brightness}%` }}</span>
         </div>
 
         <div class="slider-row">
@@ -215,6 +221,7 @@
             :format-tooltip="v => `${Math.round(v * 100)}%`"
             @input="onOverlayInput"
           />
+          <span class="slider-value">{{ `${Math.round(bg.settings.overlay * 100)}%` }}</span>
         </div>
 
         <p class="tip">
@@ -237,6 +244,7 @@
             :format-tooltip="v => `${Math.round(v * 100)}%`"
             @input="v => bg.update({ scrimStrength: v as number })"
           />
+          <span class="slider-value">{{ `${Math.round(bg.settings.scrimStrength * 100)}%` }}</span>
         </div>
 
         <p class="tip">
@@ -956,6 +964,15 @@ const hasStaleRegions = computed(() =>
 
 .slider-row :deep(.el-slider) {
   flex: 1;
+}
+
+/* 滑杆右侧的当前数值：定宽右对齐，避免数字跳动引起布局抖动 */
+.slider-value {
+  min-width: 52px;
+  text-align: right;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: rgba(255, 255, 255, 0.8);
 }
 
 /* 预设档位 */
