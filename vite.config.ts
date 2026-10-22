@@ -15,6 +15,21 @@ export default defineConfig(({ mode }) => {
     server: {
       port: 8090,
       host: true,
+      /*
+       * 排除测试产物目录。
+       *
+       * vitest 会在 tests/ 下创建临时目录（如
+       * `.background.spec.ts.<pid>.<hash>.tmpdir/`），
+       * 若 Vite 的 watcher 去监听这些瞬时文件，会在其被删除时
+       * 抛出 EBUSY 并**直接终止 dev server**（实测发生）。
+       */
+      watch: {
+        ignored: [
+          '**/*.tmpdir/**',
+          '**/tests/**/*.tmp',
+          '**/coverage/**'
+        ]
+      },
       // 代理配置
       proxy: createProxy(viteEnv.VITE_PROXY),
     },
