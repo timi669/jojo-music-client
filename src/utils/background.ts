@@ -95,6 +95,23 @@ export interface BackgroundSettings {
   overlay: number
   /** 遮罩取色：跟随文字明暗自动决定黑或白 */
   overlayTone: 'auto' | 'black' | 'white'
+  /**
+   * 区域渐变遮罩（scrim）强度系数 0~1。
+   *
+   * 为什么需要：全屏均匀压暗会让壁纸整体发灰、失去通透感
+   * （人物的脸也被一起压暗）。专业产品只在**文字密集的边缘区域**
+   * 加渐变遮罩，中间主体保持原图 —— 既保可读性又不牺牲观感。
+   *
+   * 该值作为各区域基础强度的倍率，0 表示完全不加区域遮罩。
+   */
+  scrimStrength: number
+  /**
+   * 内容面板（卡片）是否使用毛玻璃。
+   *
+   * 文字坐在受控的磨砂面板上，可读性就不再依赖把整张壁纸压暗，
+   * 这是"通透感"与"可读性"能同时成立的关键。
+   */
+  glassPanels: boolean
   /** 文字配色模式 */
   fontColorMode: FontColorMode
   /** 手动指定的文字色（fontColorMode === 'light' | 'dark' 时生效） */
@@ -104,6 +121,15 @@ export interface BackgroundSettings {
    * 默认开启：手动点"一键优化"容易漏，自动兜底更省心。
    */
   autoAdaptContrast: boolean
+  /**
+   * 用户是否**手动调整过**全局遮罩。
+   *
+   * 为什么需要独立标记：0 本身是合法的手动取值
+   * （用户可能想完全不压暗、纯靠边缘渐隐与毛玻璃保证可读性）。
+   * 若用 "overlay === 0" 来推断"用户没设过"，就会把手动设成 0 的意图
+   * 当成默认值、随后被自动兜底覆盖，等于无视用户选择。
+   */
+  overlayManuallySet: boolean
   /** 主题色是否跟随壁纸主色（换图时自动重算） */
   themeFollow: boolean
 }
@@ -118,9 +144,12 @@ export const DEFAULT_BACKGROUND_SETTINGS: BackgroundSettings = {
   brightness: 0,
   overlay: 0,
   overlayTone: 'auto',
+  scrimStrength: 1,
+  glassPanels: true,
   fontColorMode: 'auto',
   manualForeground: null,
   autoAdaptContrast: true,
+  overlayManuallySet: false,
   themeFollow: false
 }
 
@@ -840,8 +869,13 @@ export function sampleRegionsByGrid(
  * 区域均值与极值上 —— 这样同一浓度会一致地作用于所有采样点，
  * 不必去反解"合成后的颜色对应多少浓度"。
  *
+ * 另外支持**区域渐变遮罩**：不同区域的遮罩强度本就不同
+ * （导航/顶栏/底栏更强，中间内容区更弱甚至不加），
+ * 因此可为每个区域单独指定强度，避免用全屏均匀压暗来保可读性。
+ *
  * @param regions 分区采样（含极值）
- * @param overlay 当前遮罩：浓度 0~1 与颜色（黑/白）
+ * @param overlay 当前全局遮罩：浓度 0~1 与颜色（黑/白）
+ * @param scrim 区域渐变遮罩：总体强度与各区域的相对倍率
  */
 export function pickForegroundForRegions(
   regions: {
@@ -854,7 +888,29 @@ export function pickForegroundForRegions(
   overlay: { opacity: number; tone: 'black' | 'white' } = {
     opacity: 0,
     tone: 'black'
-  }
+  },
+  scrim: {
+    /** 总体强度倍率 0~1（对应 settings.scrimStrength） */
+    strength: number
+    /** 各区域的基准强度（与 CSS 中 scrim 的 opacity 系数保持一致） */
+    base?: Partial<Record<'sidebar' | 'content' | 'header' | 'footer' | 'all', number>>
+  } = { strength: 0 },
+  /**
+   * 内容区毛玻璃面板。
+   *
+   * 中间内容区没有边缘遮罩，其可读性依赖"文字坐在磨砂面板上" ——
+   * 面板会把壁纸按自身不透明度混入一层底色，因此判定内容区对比度时
+   * 必须以"玻璃覆盖后的等效色"为背景，否则会误判为不可读、
+   * 进而把全局遮罩调高、把壁纸压灰（正是评审批评的现象）。
+   */
+  glass: {
+    /** 是否启用 */
+    enabled: boolean
+    /** 面板底色 hex（不含 alpha） */
+    color: string
+    /** 面板不透明度 0~1 */
+    alpha: number
+  } = { enabled: false, color: '#ffffff', alpha: 0 }
 ): {
   hex: string
   /** 各区域中最低的对比度（决定"是否真的全区域可读"） */
@@ -869,23 +925,74 @@ export function pickForegroundForRegions(
   const isHex = (v: unknown): v is string =>
     typeof v === 'string' && /^#?[0-9a-fA-F]{3}([0-9a-fA-F]{3})?$/.test(v.trim())
 
-  /** 把遮罩合成到某个底色上 */
-  const withOverlay = (bgHex: string): string => {
-    if (overlay.opacity <= 0) return bgHex
-    const [r, g, b] = hexToRgb(bgHex)
-    const target = overlay.tone === 'black' ? [0, 0, 0] : [255, 255, 255]
-    const a = Math.max(0, Math.min(1, overlay.opacity))
-    return rgbToHex(
-      r * (1 - a) + target[0] * a,
-      g * (1 - a) + target[1] * a,
-      b * (1 - a) + target[2] * a
-    )
+  /**
+   * 各区域由"边缘渐变遮罩"实际引入的等效浓度。
+   * 渐变是空间上的过渡，文字压在区域深处的浓度接近基准值、
+   * 靠近内侧则接近 0；这里取一个偏保守的中间值参与判定。
+   */
+  const SCRIM_BASE: Record<string, number> = {
+    sidebar: 0.55,
+    header: 0.35,
+    footer: 0.6,
+    // 中间内容区不加边缘遮罩（保持通透），
+    // 其可读性交给毛玻璃面板承担
+    content: 0,
+    all: 0.3
+  }
+
+  /** 把遮罩（全局 + 区域）与毛玻璃面板合成到某个底色上 */
+  const withOverlay = (bgHex: string, regionKey: string): string => {
+    let [r, g, b] = hexToRgb(bgHex)
+
+    /** 朝 target 混入 a 比例 */
+    const blend = (
+      cur: [number, number, number],
+      target: number[],
+      a: number
+    ): [number, number, number] => {
+      const t = Math.max(0, Math.min(1, a))
+      return [
+        cur[0] * (1 - t) + target[0] * t,
+        cur[1] * (1 - t) + target[1] * t,
+        cur[2] * (1 - t) + target[2] * t
+      ]
+    }
+
+    // 1) 区域渐变遮罩
+    const baseScrim =
+      scrim.base?.[regionKey as keyof typeof scrim.base] ??
+      SCRIM_BASE[regionKey] ??
+      0
+    const scrimAlpha = baseScrim * Math.max(0, Math.min(1, scrim.strength))
+    if (scrimAlpha > 0) {
+      const scrimTarget = overlay.tone === 'black' ? [0, 0, 0] : [255, 255, 255]
+      // 渐变遮罩自身的不透明度为 0.85，故乘上它得到实际混合量
+      ;[r, g, b] = blend([r, g, b], scrimTarget, scrimAlpha * 0.85)
+    }
+
+    // 2) 全局遮罩（兜底微调）
+    if (overlay.opacity > 0) {
+      const target = overlay.tone === 'black' ? [0, 0, 0] : [255, 255, 255]
+      ;[r, g, b] = blend([r, g, b], target, overlay.opacity)
+    }
+
+    /*
+     * 3) 毛玻璃面板：内容区的文字实际坐在磨砂面上。
+     * 面板以自身不透明度混入底色，等效于把背景朝面板色拉近。
+     * 仅作用于"中间内容区"——边缘区没有面板，仍是原始壁纸。
+     */
+    if (glass.enabled && glass.alpha > 0 && regionKey === 'content') {
+      ;[r, g, b] = blend([r, g, b], hexToRgb(glass.color), glass.alpha)
+    }
+
+    return rgbToHex(r, g, b)
   }
 
   /** 针对某个前景色，评估它在某区域的最差情况 */
   const worstForRegion = (
     fgRgb: [number, number, number],
-    region: RegionSample | undefined
+    region: RegionSample | undefined,
+    regionKey: string
   ): number => {
     if (!region) return 1
     const samples: string[] = []
@@ -898,7 +1005,7 @@ export function pickForegroundForRegions(
 
     let min = Number.POSITIVE_INFINITY
     for (const s of samples) {
-      const effective = withOverlay(s)
+      const effective = withOverlay(s, regionKey)
       const r = contrastRatio(fgRgb, hexToRgb(effective))
       if (Number.isFinite(r) && r < min) min = r
     }
@@ -910,7 +1017,7 @@ export function pickForegroundForRegions(
     const detail: Record<string, number> = {}
     let worst = Number.POSITIVE_INFINITY
     for (const k of keys) {
-      const r = worstForRegion(fg, regions[k])
+      const r = worstForRegion(fg, regions[k], k)
       detail[k] = r
       if (r < worst) worst = r
     }

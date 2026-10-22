@@ -186,8 +186,44 @@
             :max="0.8"
             :step="0.05"
             :format-tooltip="v => `${Math.round(v * 100)}%`"
-            @input="v => bg.update({ overlay: v as number })"
+            @input="onOverlayInput"
           />
+        </div>
+
+        <p class="tip">
+          内容遮罩是**全屏**压暗，主要作兜底微调。若只是想压住文字密集区、
+          又不想让壁纸主体发灰，请用下面的"边缘渐隐"。
+          <template v-if="bg.settings.overlayManuallySet">
+            <el-button size="small" type="primary" link @click="clearManualOverlay">
+              交还自动适配
+            </el-button>
+          </template>
+        </p>
+
+        <div class="slider-row">
+          <span class="mini-label">边缘渐隐</span>
+          <el-slider
+            :model-value="bg.settings.scrimStrength"
+            :min="0"
+            :max="1"
+            :step="0.05"
+            :format-tooltip="v => `${Math.round(v * 100)}%`"
+            @input="v => bg.update({ scrimStrength: v as number })"
+          />
+        </div>
+
+        <p class="tip">
+          只在左侧导航、顶部、底部播放条渐入暗色，中间主体保持原图通透 ——
+          这是壁纸不被压灰的关键。
+        </p>
+
+        <div class="bg-setting__row">
+          <span class="mini-label">面板毛玻璃</span>
+          <el-switch
+            :model-value="bg.settings.glassPanels"
+            @change="v => bg.update({ glassPanels: Boolean(v) })"
+          />
+          <span class="hint">卡片/面板用磨砂面承载文字，进一步减少对遮罩的依赖</span>
         </div>
 
         <div class="bg-setting__row">
@@ -693,6 +729,23 @@ function applySuggestedOverlay() {
   ElMessage.success('已优化遮罩，对比度已改善')
 }
 
+/**
+ * 手动拖动"内容遮罩"滑杆。
+ *
+ * 必须打上 overlayManuallySet 标记（**即使拖到 0 也算手动**）——
+ * 否则自动兜底会把用户明确选择的"不压暗"当成默认值覆盖掉。
+ */
+function onOverlayInput(v: number | number[]) {
+  const value = Array.isArray(v) ? v[0] : v
+  bg.update({ overlay: value, overlayManuallySet: true })
+}
+
+/** 取消手动遮罩，交还自动适配管理 */
+function clearManualOverlay() {
+  bg.update({ overlayManuallySet: false, overlay: 0 })
+  ElMessage.success('已交还自动适配管理')
+}
+
 /** 一键把壁纸主色作为主题色（同时打开"跟随"，换图时会自动重算）
  *
  * 传**原始主色**即可：归一化（OKLCH 提亮/降彩/校验对比度）由 themeStore 统一负责，
@@ -787,10 +840,34 @@ const hasStaleRegions = computed(() =>
 </script>
 
 <style scoped>
+/* 面板自身固定用深色玻璃面，不随壁纸文字模式翻转 ——
+   调设置时不能因为壁纸变浅而看不清设置本身 */
 .bg-setting {
   display: flex;
   flex-direction: column;
   gap: 18px;
+  background-color: rgba(15, 18, 25, 0.55);
+  backdrop-filter: blur(18px) saturate(1.2);
+  -webkit-backdrop-filter: blur(18px) saturate(1.2);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+  padding: 16px;
+}
+
+/* 面板内文字固定为浅色，避免受壁纸文字色影响 */
+.bg-setting {
+  color: rgba(255, 255, 255, 0.92);
+}
+
+.bg-setting .mini-label,
+.bg-setting .bg-setting__block-title,
+.bg-setting .hint,
+.bg-setting .tip {
+  color: rgba(255, 255, 255, 0.75);
+}
+
+.bg-setting .mono {
+  color: rgba(255, 255, 255, 0.65);
 }
 
 .bg-setting__row {

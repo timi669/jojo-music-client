@@ -25,7 +25,6 @@ import {
   DARK_FOREGROUND,
   LIGHT_FOREGROUND,
   pickForegroundForRegions,
-  suggestOverlayForRegions,
   deriveMutedForeground,
   toRegionSample,
   hexToRgb,
@@ -176,6 +175,9 @@ function normalizeSettings(
     )
       ? (raw.overlayTone as BackgroundSettings['overlayTone'])
       : 'auto',
+    scrimStrength: num(raw.scrimStrength, 1, 0, 1),
+    glassPanels:
+      raw.glassPanels === undefined ? true : Boolean(raw.glassPanels),
     fontColorMode: (['auto', 'light', 'dark'] as const).includes(
       raw.fontColorMode as 'auto'
     )
@@ -187,6 +189,11 @@ function normalizeSettings(
       raw.autoAdaptContrast === undefined
         ? DEFAULT_BACKGROUND_SETTINGS.autoAdaptContrast
         : Boolean(raw.autoAdaptContrast),
+    // 旧数据没有该标记：若其 overlay 非 0，视为用户已手动设定过，避免被兜底改写
+    overlayManuallySet:
+      raw.overlayManuallySet === undefined
+        ? num(raw.overlay, 0, 0, 0.8) > 0
+        : Boolean(raw.overlayManuallySet),
     themeFollow: Boolean(raw.themeFollow ?? false)
   }
 
@@ -291,6 +298,31 @@ export const backgroundStore = defineStore({
       return metaLuminance(meta) > 0.5 ? 'white' : 'black'
     },
 
+    /** 当前生效的遮罩与毛玻璃参数，供对比度判定统一使用 */
+    overlayParams(): {
+      overlay: { opacity: number; tone: 'black' | 'white' }
+      scrim: { strength: number }
+      glass: { enabled: boolean; color: string; alpha: number }
+    } {
+      return {
+        overlay: {
+          opacity: this.settings.overlay,
+          tone: this.resolvedOverlayTone
+        },
+        scrim: { strength: this.settings.scrimStrength },
+        glass: {
+          enabled: this.settings.glassPanels,
+          /*
+           * 与 applyToDom 写入的 --bg-glass-color 保持一致：
+           * 玻璃底色跟随**文字明暗反转**（浅字配深玻璃、深字配浅玻璃），
+           * 而不是跟随界面明暗 —— 后者会让浅色文字压在浅玻璃上。
+           */
+          color: this.resolvedForeground === LIGHT_FOREGROUND ? '#0c0e14' : '#ffffff',
+          alpha: this.settings.glassPanels ? 0.55 : 0
+        }
+      }
+    },
+
     /**
      * 推导出的最终文字色。
      * - auto：按分区对比度自动挑（并在必要时自动补遮罩）
@@ -305,10 +337,13 @@ export const backgroundStore = defineStore({
       if (!meta) return ''
 
       const regions = metaRegionsOrFallback(meta)
-      const picked = pickForegroundForRegions(regions, {
-        opacity: this.settings.overlay,
-        tone: this.resolvedOverlayTone
-      })
+      const params = this.overlayParams
+      const picked = pickForegroundForRegions(
+        regions,
+        params.overlay,
+        params.scrim,
+        params.glass
+      )
       return picked.hex
     },
 
@@ -339,10 +374,13 @@ export const backgroundStore = defineStore({
       const fg = this.resolvedForeground
       if (!fg) return 0
       const regions = metaRegionsOrFallback(meta)
-      const picked = pickForegroundForRegions(regions, {
-        opacity: this.settings.overlay,
-        tone: this.resolvedOverlayTone
-      })
+      const params = this.overlayParams
+      const picked = pickForegroundForRegions(
+        regions,
+        params.overlay,
+        params.scrim,
+        params.glass
+      )
       return picked.worstRatio
     },
 
@@ -353,35 +391,49 @@ export const backgroundStore = defineStore({
       const fg = this.resolvedForeground
       if (!fg) return {}
       const regions = metaRegionsOrFallback(meta)
-      return pickForegroundForRegions(regions, {
-        opacity: this.settings.overlay,
-        tone: this.resolvedOverlayTone
-      }).detail
+      const params = this.overlayParams
+      return pickForegroundForRegions(
+        regions,
+        params.overlay,
+        params.scrim,
+        params.glass
+      ).detail
     },
 
     /**
-     * 自动建议的遮罩方案。
-     * 取"各区域所需浓度的最大值"，保证全区域达标；遮罩色与文字色相反。
+     * 自动建议的**全局**遮罩方案。
+     *
+     * 关键：必须把**区域渐变遮罩已有的贡献**算进去再决定全局遮罩要补多少。
+     * 否则会出现"边缘已经压暗了、却仍把整屏再压一层"的情况 ——
+     * 那正是评审批评的"全屏一刀切把壁纸压灰"。
+     *
+     * 做法：从 0 开始逐步增加全局浓度，用与判定完全相同的
+     * pickForegroundForRegions（含分区、极值与区域遮罩）试探，
+     * 取**第一个能让所有区域达标**的最小值；若加到上限仍不行则返回上限。
      */
     suggestedOverlayPlan(): { opacity: number; tone: 'black' | 'white' } {
       const meta = this.activeImage
       if (!meta) return { opacity: 0, tone: 'black' }
-      const regions = metaRegions(meta)
-      const tone = this.resolvedOverlayTone
-      const fg = this.resolvedForeground || DARK_FOREGROUND
 
-      const fallback = metaRepresentativeColor(meta)
-      const colors = REGION_KEYS.map(
-        k => regions?.[k]?.averageColor || fallback
-      ).filter(Boolean) as string[]
+      const regions = metaRegionsOrFallback(meta)
+      const tone: 'black' | 'white' =
+        this.resolvedOverlayTone === 'white' ? 'white' : 'black'
+      const scrim = { strength: this.settings.scrimStrength }
 
-      // 先按"无遮罩"的原始底色算需要多少浓度
-      const plan = suggestOverlayForRegions(colors, fg)
-      // 若自动遮罩色与当前一致，直接用它；
-      // 否则把 tone 统一到"与文字色相反"的那一侧，避免方向错误
-      const opposite: 'black' | 'white' =
-        fg === LIGHT_FOREGROUND ? 'black' : fg === DARK_FOREGROUND ? 'white' : tone
-      return { opacity: plan.opacity, tone: opposite }
+      // 逐档试探最小可行浓度（0.05 为一档，上限 0.8）
+      for (let a = 0; a <= 0.8 + 1e-9; a += 0.05) {
+        const opacity = Number(a.toFixed(2))
+        const picked = pickForegroundForRegions(
+          regions,
+          { opacity, tone },
+          scrim,
+          this.overlayParams.glass
+        )
+        if (picked.meetsAAEverywhere) {
+          return { opacity, tone }
+        }
+      }
+      return { opacity: 0.8, tone }
     },
 
     /** 兼容旧用法：仅返回浓度 */
@@ -393,8 +445,11 @@ export const backgroundStore = defineStore({
     needsAutoAdapt(state): boolean {
       if (!state.settings.autoAdaptContrast) return false
       if (state.settings.fontColorMode !== 'auto') return false
-      // 已手动设过遮罩则不覆盖用户意图
-      if (state.settings.overlay > 0) return false
+      /*
+       * 用户手动调过全局遮罩就不再自动改写 —— 包括手动设为 0 的情况。
+       * 0 是合法的"完全不压暗"选择，不能因为它是默认值就当成"没设过"。
+       */
+      if (state.settings.overlayManuallySet) return false
       return this.currentContrast > 0 && this.currentContrast < 4.5
     }
   },
@@ -560,8 +615,10 @@ export const backgroundStore = defineStore({
           '--bg-offset-y',
           '--bg-opacity',
           '--bg-blur',
+          '--bg-blur-fix',
           '--bg-brightness',
           '--bg-overlay-color',
+          '--bg-scrim-color',
           '--bg-wallpaper-active',
           '--background',
           '--theme-bg-color',
@@ -569,24 +626,27 @@ export const backgroundStore = defineStore({
         ]
         props.forEach(p => root.style.removeProperty(p))
         root.removeAttribute('data-bg-wallpaper')
+        root.removeAttribute('data-bg-glass')
         return
       }
 
       /*
-       * 自动兜底：文字色与所有区域都达不到 4.5:1 时，
-       * 自动补一层遮罩（浓度取各区域所需最大值），无需用户手动点按钮。
-       * 注意要"先按无遮罩算文字色，再按该文字色算遮罩"，
-       * 否则会用错方向导致越调越糟。
+       * 自动兜底：文字色与所有区域都达不到 4.5:1 时自动补一层**全局**遮罩。
+       *
+       * 由于判定已把"区域渐变遮罩"的贡献计入，这里补的浓度通常很小甚至为 0 ——
+       * 这正是期望结果：可读性优先由边缘渐隐与毛玻璃承担，
+       * 全局遮罩只作兜底，避免把整张壁纸压灰。
+       *
+       * 注意：**只回写浓度，不改 overlayTone**。
+       * 早期实现会把自动算出的 tone 也写回 settings，导致用户的 "auto" 选择
+       * 被永久覆盖成固定的黑/白，之后换壁纸也不再自动判断。
        */
       let overlay = s.overlay
-      let overlayTone: 'black' | 'white' = this.resolvedOverlayTone
+      const overlayTone: 'black' | 'white' = this.resolvedOverlayTone
       if (this.needsAutoAdapt) {
         const plan = this.suggestedOverlayPlan
-        overlay = plan.opacity
-        overlayTone = plan.tone
-        // 落回配置，保证面板显示与实际一致、且刷新后保持
+        overlay = Math.max(overlay, plan.opacity)
         s.overlay = overlay
-        s.overlayTone = overlayTone
       }
 
       const layout = this.activeLayout
@@ -597,7 +657,43 @@ export const backgroundStore = defineStore({
       root.style.setProperty('--bg-offset-y', `${layout.offsetY}%`)
       root.style.setProperty('--bg-opacity', String(s.opacity))
       root.style.setProperty('--bg-blur', `${s.blur}px`)
+      /*
+       * 模糊防露边：模糊会把边缘像素"吃"掉、透出底色，
+       * 因此模糊大于 0 时按半径等比放大背景（最多 1.12），保证四边不露底。
+       */
+      const blurFix = s.blur > 0 ? Math.min(1.12, 1 + s.blur / 120) : 1
+      root.style.setProperty('--bg-blur-fix', String(Number(blurFix.toFixed(3))))
       root.style.setProperty('--bg-brightness', String(1 + s.brightness / 100))
+
+      // 区域渐变遮罩的颜色：浅色文字用黑色系、深色文字用白色系
+      const scrimTone: 'black' | 'white' =
+        this.resolvedOverlayTone === 'white' ? 'white' : 'black'
+      root.style.setProperty(
+        '--bg-scrim-color',
+        scrimTone === 'white' ? 'rgba(255, 255, 255, 0.85)' : 'rgba(0, 0, 0, 0.85)'
+      )
+
+      // 卡片毛玻璃：文字坐在受控玻璃面上，可读性不再依赖压暗整张壁纸
+      if (s.glassPanels) {
+        root.setAttribute('data-bg-glass', '1')
+        /*
+         * 玻璃底色必须与**文字明暗相反**，否则会出现
+         * "浅字压浅玻璃"，比不加玻璃还糟（实测内容区仅 1.82:1）。
+         * 浅色文字 -> 深玻璃；深色文字 -> 浅玻璃。
+         */
+        const glassIsDark = this.resolvedForeground === LIGHT_FOREGROUND
+        if (glassIsDark) {
+          root.style.setProperty('--bg-glass-color', 'rgba(12, 14, 20, 0.55)')
+          root.style.setProperty('--bg-glass-border', 'rgba(255, 255, 255, 0.12)')
+        } else {
+          root.style.setProperty('--bg-glass-color', 'rgba(255, 255, 255, 0.55)')
+          root.style.setProperty('--bg-glass-border', 'rgba(0, 0, 0, 0.08)')
+        }
+      } else {
+        root.removeAttribute('data-bg-glass')
+        root.style.removeProperty('--bg-glass-color')
+        root.style.removeProperty('--bg-glass-border')
+      }
 
       const rgb = overlayTone === 'white' ? '255, 255, 255' : '0, 0, 0'
       root.style.setProperty('--bg-overlay-color', `rgba(${rgb}, ${overlay})`)
