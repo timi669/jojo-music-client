@@ -22,7 +22,7 @@ import {
   type BackgroundSettings,
   type RegionSample
 } from '../src/utils/background'
-import { normalizeAccent, deriveAccentTokens, hexToOklch } from '../src/utils/colorTokens'
+import { normalizeAccent, deriveAccentTokens, hexToOklch, deriveSoftTone } from '../src/utils/colorTokens'
 
 /** 造一个 RegionSample（只需 averageColor，其余从它推导） */
 const region = (hex: string): RegionSample => {
@@ -858,6 +858,28 @@ describe('accent 令牌（OKLCH 归一化，P0-1 核心）', () => {
     const base = hexToOklch(t.accent).L
     expect(hexToOklch(t.accentHover).L).toBeGreaterThan(base)
     expect(hexToOklch(t.accentActive).L).toBeLessThan(base)
+  })
+})
+
+describe('deriveSoftTone（柔色派生）', () => {
+  it('保持色相，但彩度明显低于主色', () => {
+    const accent = '#7e22ce'
+    const soft = deriveSoftTone(accent)
+    const a = hexToOklch(accent)
+    const s = hexToOklch(soft)
+    expect(Math.abs(a.H - s.H)).toBeLessThan(3)
+    expect(s.C).toBeLessThan(a.C)
+  })
+
+  it('输出为合法 hex', () => {
+    for (const c of ['#7e22ce', '#b34b4c', '#1e88e5', '#4caf50']) {
+      expect(deriveSoftTone(c)).toMatch(/^#[0-9a-f]{6}$/)
+    }
+  })
+
+  it('近灰主色不做色相变换（免得生成杂色）', () => {
+    const gray = '#808080'
+    expect(deriveSoftTone(gray)).toBe(gray)
   })
 })
 
