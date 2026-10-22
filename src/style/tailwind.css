@@ -175,6 +175,62 @@ html.dark:root[data-bg-wallpaper='1'] {
   background-color: transparent;
 }
 
+/*
+ * 中间内容区没有边缘遮罩，其可读性依赖"文字坐在毛玻璃面板上"。
+ * 因此表格容器与卡片在壁纸模式下改用磨砂底 ——
+ * 这比把整张壁纸压暗更保通透感，也是评审建议的核心做法。
+ */
+:root[data-bg-glass='1'] .el-table {
+  background-color: rgba(255, 255, 255, 0.42);
+  backdrop-filter: blur(16px) saturate(1.3);
+  -webkit-backdrop-filter: blur(16px) saturate(1.3);
+  border-radius: 10px;
+}
+
+html.dark:root[data-bg-glass='1'] .el-table {
+  background-color: rgba(15, 18, 25, 0.42);
+}
+
+/* 毛玻璃之上，行本身的底色保持透明以免盖住磨砂效果 */
+:root[data-bg-glass='1'] .el-table tr,
+:root[data-bg-glass='1'] .el-table th.el-table__cell,
+:root[data-bg-glass='1'] .el-table td.el-table__cell {
+  background-color: transparent;
+}
+
+/*
+ * 中间内容区没有边缘遮罩，其可读性依赖"文字坐在毛玻璃面板上"。
+ * 因此表格容器与卡片在壁纸模式下改用磨砂底 ——
+ * 这比把整张壁纸压暗更保通透感，也是评审建议的核心做法。
+ *
+ * 关键：磨砂底的颜色必须与**文字明暗相反**
+ * （浅色文字配深玻璃、深色文字配浅玻璃），
+ * 否则会出现"浅字压浅玻璃"从而比不加玻璃还糟的情况。
+ * 实际取值由 backgroundStore 写入 --bg-glass-color / --bg-glass-alpha，
+ * 因此这里不写死颜色，只消费变量。
+ */
+:root[data-bg-glass='1'] .el-table,
+:root[data-bg-glass='1'] .glass-panel {
+  background-color: var(--bg-glass-color, rgba(255, 255, 255, 0.42));
+  backdrop-filter: blur(16px) saturate(1.3);
+  -webkit-backdrop-filter: blur(16px) saturate(1.3);
+  border-radius: 10px;
+}
+
+:root[data-bg-glass='1'] .bg-card {
+  background-color: var(--bg-glass-color, rgba(255, 255, 255, 0.5));
+  backdrop-filter: blur(18px) saturate(1.3);
+  -webkit-backdrop-filter: blur(18px) saturate(1.3);
+  border: 1px solid var(--bg-glass-border, rgba(255, 255, 255, 0.5));
+}
+
+/* 毛玻璃之上，行本身的底色保持透明以免盖住磨砂效果 */
+:root[data-bg-glass='1'] .el-table tr,
+:root[data-bg-glass='1'] .el-table th.el-table__cell,
+:root[data-bg-glass='1'] .el-table td.el-table__cell {
+  background-color: transparent;
+}
+
 /* ------------------------------------------------------------------ *
  *  排除区域（data-bg-exempt）
  *
