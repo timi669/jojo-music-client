@@ -49,6 +49,27 @@ export interface BackgroundImageMeta {
   averageColor: string
   /** 自动提取的主色调（hex） */
   dominantColor: string
+  /**
+   * 分区采样结果（侧边栏/内容区/顶栏/底栏）。
+   * 用于挑一个"在各区域都可读"的文字色，仅在图片导入时计算一次。
+   */
+  regions?: ImageAnalysis['regions']
+}
+
+/** 单张图片的构图参数（按图保存，避免换图后上一张的缩放/位移串到新图） */
+export interface ImageLayout {
+  fit: BackgroundFit
+  scale: number
+  offsetX: number
+  offsetY: number
+}
+
+/** 默认构图参数 */
+export const DEFAULT_IMAGE_LAYOUT: ImageLayout = {
+  fit: 'cover',
+  scale: 1,
+  offsetX: 0,
+  offsetY: 0
 }
 
 /** 背景显示配置 */
@@ -57,13 +78,13 @@ export interface BackgroundSettings {
   enabled: boolean
   /** 当前选中的图片 id（null 表示无） */
   activeImageId: string | null
-  /** 图片适配方式 */
-  fit: BackgroundFit
-  /** 缩放倍数（1 = 原始大小，仅 cover/contain 下生效，用于微调） */
-  scale: number
-  /** 平移偏移，百分比（-50 ~ 50），用于把主体挪到合适位置 */
-  offsetX: number
-  offsetY: number
+  /**
+   * 每张图各自的构图参数，key 为图片 id。
+   *
+   * 之所以按图保存：横图与竖图、构图松紧差异很大，共用一个 scale/offset 时，
+   * 给 A 调好的取景在 B 上往往是歪的，用户每次换图都得重调。
+   */
+  perImageLayout: Record<string, ImageLayout>
   /** 背景整体不透明度 0~1（1 = 完全不透明） */
   opacity: number
   /** 模糊程度 px（0 = 不模糊） */
@@ -78,23 +99,29 @@ export interface BackgroundSettings {
   fontColorMode: FontColorMode
   /** 手动指定的文字色（fontColorMode === 'light' | 'dark' 时生效） */
   manualForeground: string | null
+  /**
+   * 对比度不足时是否自动补遮罩。
+   * 默认开启：手动点"一键优化"容易漏，自动兜底更省心。
+   */
+  autoAdaptContrast: boolean
+  /** 主题色是否跟随壁纸主色（换图时自动重算） */
+  themeFollow: boolean
 }
 
 /** 默认配置 */
 export const DEFAULT_BACKGROUND_SETTINGS: BackgroundSettings = {
   enabled: false,
   activeImageId: null,
-  fit: 'cover',
-  scale: 1,
-  offsetX: 0,
-  offsetY: 0,
+  perImageLayout: {},
   opacity: 1,
   blur: 0,
   brightness: 0,
   overlay: 0,
   overlayTone: 'auto',
   fontColorMode: 'auto',
-  manualForeground: null
+  manualForeground: null,
+  autoAdaptContrast: true,
+  themeFollow: false
 }
 
 /* ------------------------------------------------------------------ *
@@ -263,6 +290,77 @@ export function suggestOverlayOpacity(
 }
 
 /**
+ * 分区版本的遮罩建议。
+ *
+ * 遮罩是全局一层，因此浓度必须取"各区域所需的最大值"，
+ * 否则按平均色算出的浓度可能在偏亮/偏暗的那个区域不够用。
+ *
+ * @param regionColors 各区域的有效背景色
+ * @param foregroundHex 目标文字色
+ * @returns 满足**所有区域**达标所需的最小浓度与遮罩色
+ */
+export function suggestOverlayForRegions(
+  regionColors: string[],
+  foregroundHex: string
+): { opacity: number; tone: 'black' | 'white' } {
+  let best: { opacity: number; tone: 'black' | 'white' } | null = null
+
+  for (const tone of ['black', 'white'] as const) {
+    let required = 0
+    for (const bg of regionColors) {
+      if (!bg) continue
+      const a = requiredOverlayFor(bg, foregroundHex, tone)
+      if (a > required) required = a
+    }
+    if (best === null || required < best.opacity) {
+      best = { opacity: required, tone }
+    }
+  }
+  return best ?? { opacity: 0, tone: 'black' }
+}
+
+/**
+ * 推导次级文字色（表头、辅助说明、占位符等）。
+ *
+ * 之前用"固定混入 35%"的做法只能保证"看起来淡一档"，
+ * 却无法保证它在浅色背景下仍可读。
+ *
+ * 现改为**按目标对比度反推**：从主文字色朝背景方向逐步混合，
+ * 取"仍满足 targetRatio"的最大混合量 —— 既有层次感，又有可读性下限。
+ *
+ * @param fgHex 主文字色
+ * @param bgHex 背景色
+ * @param targetRatio 目标对比度，默认 4.5（WCAG AA 正文）
+ */
+export function deriveMutedForeground(
+  fgHex: string,
+  bgHex: string,
+  targetRatio = 4.5
+): string {
+  const fg = hexToRgb(fgHex)
+  const bg = hexToRgb(bgHex)
+
+  // 主文字色本身都达不到目标时（极端中灰背景），直接返回主色，
+  // 交给遮罩机制兜底，避免次级色比主色更糟。
+  if (contrastRatio(fg, bg) < targetRatio) return fgHex
+
+  let best = fgHex
+  for (let t = 0.05; t <= 0.8; t += 0.05) {
+    const mixed: [number, number, number] = [
+      fg[0] * (1 - t) + bg[0] * t,
+      fg[1] * (1 - t) + bg[1] * t,
+      fg[2] * (1 - t) + bg[2] * t
+    ]
+    if (contrastRatio(mixed, bg) >= targetRatio) {
+      best = rgbToHex(mixed[0], mixed[1], mixed[2])
+    } else {
+      break
+    }
+  }
+  return best
+}
+
+/**
  * 计算在指定遮罩色下达到 WCAG AA(4.5:1) 所需的最小浓度。
  *
  * @returns 0 表示当前无需遮罩；0.8 表示到上限仍不达标
@@ -299,7 +397,7 @@ function requiredOverlayFor(
  * ------------------------------------------------------------------ */
 
 export interface ImageAnalysis {
-  /** 平均亮度 0~1（基于 sRGB 相对亮度的均值，可直接用于 WCAG 对比度判断） */
+  /** 平均亮度 0~1（基于 sRGB 相对亮度的均值，保留用于展示） */
   luminance: number
   /** 平均色 hex */
   averageColor: string
@@ -311,16 +409,50 @@ export interface ImageAnalysis {
    * 与 `luminance` 的区别：`luminance` 是全图逐像素相对亮度的均值，
    * 而本字段是对"平均色"这一单一颜色求相对亮度 ——
    * 后者才是判断"底色偏亮还是偏暗"的正确依据。
-   * （两者在中灰图上会明显不同：`#7a7a7a` 的 luminance 均值可能很低，
-   *  但其作为底色的相对亮度约 0.19，仍属"偏暗"，两种口径需区分使用。）
    */
   averageLuminance: number
+  /**
+   * 分区采样结果。
+   *
+   * 为什么需要：界面并非整块均匀铺图 —— 左侧有侧边栏、中央是内容区、
+   * 底部是播放条。一张"左暗右亮"的壁纸，按整图平均色算出来的文字色
+   * 可能在某个分区恰好不合适。这里对几个关键区域分别取样，
+   * 让每类文字用**它所处区域**的背景色来判断。
+   */
+  regions: {
+    /** 左列（侧边栏） */
+    sidebar: RegionSample
+    /** 中央内容区 */
+    content: RegionSample
+    /** 顶部（header） */
+    header: RegionSample
+    /** 底部（播放条） */
+    footer: RegionSample
+    /** 整图 */
+    all: RegionSample
+  }
+}
+
+/** 单个区域的采样结果 */
+export interface RegionSample {
+  /** 区域内平均色 hex */
+  averageColor: string
+  /** 该平均色的 WCAG 相对亮度 */
+  luminance: number
+  /** 主色 hex */
+  dominantColor: string
 }
 
 /**
- * 分析一张图片：平均亮度、平均色、主色调。
+ * 分析一张图片：整体与分区的平均色、亮度、主色。
  *
- * 为性能考虑会先把图降采样到最长边 64px 再统计（几万个像素足够代表整体倾向）。
+ * 为性能考虑先把图降采样到最长边 64px 再统计（几千像素足够代表整体倾向）。
+ *
+ * 分区采样按"界面大致布局"给出的比例切分（与图片自身比例无关的近似）：
+ * 左侧 ~20% 是侧边栏、顶部 ~8% 是标题栏、底部 ~10% 是播放条、其余为内容区。
+ * 之所以这样做：壁纸各区域明暗常不一致（例如左侧压暗、中央明亮），
+ * 只按整图平均选一个文字色，在某些区域就会偏浅或偏深；
+ * 用分区信息可以挑一个"在各区域都成立"的文字色。
  */
 export function analyzeImage(img: HTMLImageElement): ImageAnalysis {
   const maxSide = 64
@@ -328,98 +460,213 @@ export function analyzeImage(img: HTMLImageElement): ImageAnalysis {
   const w = Math.max(1, Math.round(img.naturalWidth * ratio))
   const h = Math.max(1, Math.round(img.naturalHeight * ratio))
 
+  const fallbackRegion: RegionSample = {
+    averageColor: '#ffffff',
+    luminance: 1,
+    dominantColor: '#7E22CE'
+  }
+  const fallback = (): ImageAnalysis => ({
+    luminance: 1,
+    averageColor: '#ffffff',
+    dominantColor: '#7E22CE',
+    averageLuminance: 1,
+    regions: {
+      sidebar: fallbackRegion,
+      content: fallbackRegion,
+      header: fallbackRegion,
+      footer: fallbackRegion,
+      all: fallbackRegion
+    }
+  })
+
   const canvas = document.createElement('canvas')
   canvas.width = w
   canvas.height = h
   const ctx = canvas.getContext('2d', { willReadFrequently: true })
-  if (!ctx) {
-    return {
-      luminance: 1,
-      averageColor: '#ffffff',
-      dominantColor: '#7E22CE',
-      averageLuminance: 1
-    }
-  }
+  if (!ctx) return fallback()
   ctx.drawImage(img, 0, 0, w, h)
-  const { data } = ctx.getImageData(0, 0, w, h)
 
-  let rSum = 0
-  let gSum = 0
-  let bSum = 0
-  let lumSum = 0
-  let count = 0
+  let data: Uint8ClampedArray
+  try {
+    data = ctx.getImageData(0, 0, w, h).data
+  } catch {
+    // 跨域图片未带 CORS 头时会污染画布，取不到像素
+    return fallback()
+  }
 
-  // 主色统计：量化到 4bit/通道的桶
-  const buckets = new Map<string, { r: number; g: number; b: number; n: number }>()
+  type Acc = {
+    r: number
+    g: number
+    b: number
+    lum: number
+    n: number
+    buckets: Map<string, { r: number; g: number; b: number; n: number }>
+  }
+  const newAcc = (): Acc => ({
+    r: 0,
+    g: 0,
+    b: 0,
+    lum: 0,
+    n: 0,
+    buckets: new Map()
+  })
 
-  for (let i = 0; i < data.length; i += 4) {
-    const r = data[i]
-    const g = data[i + 1]
-    const b = data[i + 2]
-    const a = data[i + 3]
-    if (a < 128) continue // 跳过透明像素
+  const all = newAcc()
+  const sidebar = newAcc()
+  const content = newAcc()
+  const header = newAcc()
+  const footer = newAcc()
 
-    rSum += r
-    gSum += g
-    bSum += b
-    lumSum += relativeLuminance(r, g, b)
-    count++
-
+  const feed = (acc: Acc, r: number, g: number, b: number) => {
+    acc.r += r
+    acc.g += g
+    acc.b += b
+    acc.lum += relativeLuminance(r, g, b)
+    acc.n++
     const key = `${r >> 4}_${g >> 4}_${b >> 4}`
-    const bucket = buckets.get(key)
+    const bucket = acc.buckets.get(key)
     if (bucket) {
       bucket.r += r
       bucket.g += g
       bucket.b += b
       bucket.n++
     } else {
-      buckets.set(key, { r, g, b, n: 1 })
+      acc.buckets.set(key, { r, g, b, n: 1 })
     }
   }
 
-  if (count === 0) {
+  // 布局比例（近似值，仅用于决定"哪块像素代表哪个区域"）
+  const SIDEBAR_END = Math.round(w * 0.2)
+  const HEADER_END = Math.round(h * 0.08)
+  const FOOTER_START = Math.round(h * 0.9)
+
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const i = (y * w + x) * 4
+      const r = data[i]
+      const g = data[i + 1]
+      const b = data[i + 2]
+      const a = data[i + 3]
+      if (a < 128) continue // 跳过透明像素
+
+      feed(all, r, g, b)
+      if (x < SIDEBAR_END) feed(sidebar, r, g, b)
+      else feed(content, r, g, b)
+      if (y < HEADER_END) feed(header, r, g, b)
+      if (y >= FOOTER_START) feed(footer, r, g, b)
+    }
+  }
+
+  if (all.n === 0) return fallback()
+
+  const toRegion = (acc: Acc): RegionSample => {
+    if (acc.n === 0) return fallbackRegion
+    const avgR = acc.r / acc.n
+    const avgG = acc.g / acc.n
+    const avgB = acc.b / acc.n
+    const averageColor = rgbToHex(avgR, avgG, avgB)
+
+    // 主色：以"出现频次 × 饱和度"加权，避免大片灰白压过真正的主题色
+    let best: { r: number; g: number; b: number; score: number } | null = null
+    for (const bucket of acc.buckets.values()) {
+      const r = bucket.r / bucket.n
+      const g = bucket.g / bucket.n
+      const b = bucket.b / bucket.n
+      const max = Math.max(r, g, b)
+      const min = Math.min(r, g, b)
+      const saturation = max === 0 ? 0 : (max - min) / max
+      const score = bucket.n * (0.25 + saturation)
+      if (!best || score > best.score) best = { r, g, b, score }
+    }
+    const dominant = best ?? { r: avgR, g: avgG, b: avgB, score: 0 }
+
     return {
-      luminance: 1,
-      averageColor: '#ffffff',
-      dominantColor: '#7E22CE',
-      averageLuminance: 1
+      averageColor,
+      luminance: Number(
+        relativeLuminance(
+          hexToRgb(averageColor)[0],
+          hexToRgb(averageColor)[1],
+          hexToRgb(averageColor)[2]
+        ).toFixed(4)
+      ),
+      dominantColor: rgbToHex(dominant.r, dominant.g, dominant.b)
     }
   }
 
-  const avgR = rSum / count
-  const avgG = gSum / count
-  const avgB = bSum / count
-  const averageColor = rgbToHex(avgR, avgG, avgB)
-
-  // 主色：以"出现频次 × 饱和度"为权重，避免整片灰白压过真正的主题色
-  let best: { r: number; g: number; b: number; n: number; score: number } | null = null
-  for (const bucket of buckets.values()) {
-    const r = bucket.r / bucket.n
-    const g = bucket.g / bucket.n
-    const b = bucket.b / bucket.n
-    const max = Math.max(r, g, b)
-    const min = Math.min(r, g, b)
-    const saturation = max === 0 ? 0 : (max - min) / max
-    const score = bucket.n * (0.25 + saturation)
-    if (!best || score > best.score) {
-      best = { r, g, b, n: bucket.n, score }
-    }
-  }
-
-  const dominant = best ?? { r: avgR, g: avgG, b: avgB, n: count, score: 0 }
+  const allRegion = toRegion(all)
 
   return {
-    luminance: Number((lumSum / count).toFixed(4)),
-    averageColor,
-    dominantColor: rgbToHex(dominant.r, dominant.g, dominant.b),
-    // 判定底色明暗时要看"平均色本身"的相对亮度，而不是逐像素均值的均值
-    averageLuminance: Number(
-      relativeLuminance(
-        hexToRgb(averageColor)[0],
-        hexToRgb(averageColor)[1],
-        hexToRgb(averageColor)[2]
-      ).toFixed(4)
-    )
+    luminance: Number((all.lum / all.n).toFixed(4)),
+    averageColor: allRegion.averageColor,
+    dominantColor: allRegion.dominantColor,
+    averageLuminance: allRegion.luminance,
+    regions: {
+      sidebar: toRegion(sidebar),
+      content: toRegion(content),
+      header: toRegion(header),
+      footer: toRegion(footer),
+      all: allRegion
+    }
+  }
+}
+
+/**
+ * 结合分区信息挑选"在各区域都可读"的文字色。
+ *
+ * 思路：全局只使用一套文字色变量，因此不能只看某个区域。
+ * 对深/浅两种候选，分别检查它在**每个区域**上的对比度，
+ * 取"最差区域"最好的一侧；若两侧都无法在全部区域达标，
+ * 则返回最能兼顾的一项并标记需要遮罩。
+ *
+ * @param regions 分区采样结果
+ * @param overlayHex 若已启用遮罩，传入遮罩叠加后的等效底色（按区域覆盖）
+ */
+export function pickForegroundForRegions(
+  regions: {
+    sidebar: RegionSample
+    content: RegionSample
+    header: RegionSample
+    footer: RegionSample
+    all: RegionSample
+  },
+  overlayHexByRegion?: Partial<Record<keyof typeof regions, string>>
+): {
+  hex: string
+  /** 各区域中最低的对比度（决定"是否真的全区域可读"） */
+  worstRatio: number
+  /** 各区域的对比度明细 */
+  detail: Record<string, number>
+  meetsAAEverywhere: boolean
+} {
+  const keys = ['sidebar', 'content', 'header', 'footer', 'all'] as const
+
+  const evaluate = (fgHex: string) => {
+    const fg = hexToRgb(fgHex)
+    const detail: Record<string, number> = {}
+    let worst = Number.POSITIVE_INFINITY
+    for (const k of keys) {
+      const bgHex =
+        overlayHexByRegion?.[k] ?? regions[k]?.averageColor ?? '#ffffff'
+      const r = contrastRatio(fg, hexToRgb(bgHex))
+      detail[k] = Number(r.toFixed(2))
+      if (r < worst) worst = r
+    }
+    return { worst: Number(worst.toFixed(2)), detail }
+  }
+
+  const dark = evaluate(DARK_FOREGROUND)
+  const light = evaluate(LIGHT_FOREGROUND)
+
+  // 取"最差区域"表现更好的一侧 —— 保证不会出现某块区域完全看不清
+  const useDark = dark.worst >= light.worst
+  const chosen = useDark ? DARK_FOREGROUND : LIGHT_FOREGROUND
+  const result = useDark ? dark : light
+
+  return {
+    hex: chosen,
+    worstRatio: result.worst,
+    detail: result.detail,
+    meetsAAEverywhere: result.worst >= 4.5
   }
 }
 
