@@ -134,6 +134,142 @@ export interface BackgroundSettings {
   themeFollow: boolean
 }
 
+/**
+ * 预设档位标识。
+ * - immersive 沉浸：壁纸优先，尽量保持原图通透
+ * - balanced  平衡：默认推荐
+ * - clear     清晰：阅读优先
+ * - custom    自定义：用户手动调过任意滑杆后的状态
+ */
+export type BackgroundPreset = 'immersive' | 'balanced' | 'clear' | 'custom'
+
+/** 预设定义：只覆盖与观感相关的字段 */
+export interface PresetDefinition {
+  /** 档位展示名 */
+  label: string
+  /** 一句话定位 */
+  description: string
+  /** 该档位应用的配置片段 */
+  values: Pick<
+    BackgroundSettings,
+    'overlay' | 'blur' | 'scrimStrength' | 'glassPanels' | 'brightness'
+  >
+}
+
+/**
+ * 三档预设。
+ *
+ * 为什么需要：直接把 8 个滑杆怼给用户，等于把"调出好效果"的活推给用户，
+ * 普通用户只会乱拉。专业产品都是**预设在前、微调在后**：
+ * 点一下就有一组经验值，想细调再动滑杆（动过之后显示为"自定义"）。
+ *
+ * 数值依据本项目的实测结论设定：
+ * 区域渐变遮罩 + 毛玻璃已能把内容区对比度拉到 8.96:1，
+ * 因此全局遮罩不需要很高 —— 这正是"通透感"与"可读性"能兼得的原因。
+ */
+export const BACKGROUND_PRESETS: Record<
+  Exclude<BackgroundPreset, 'custom'>,
+  PresetDefinition
+> = {
+  immersive: {
+    label: '沉浸',
+    description: '壁纸优先，主体通透',
+    values: {
+      overlay: 0,
+      blur: 0,
+      scrimStrength: 0.6,
+      glassPanels: true,
+      brightness: 0
+    }
+  },
+  balanced: {
+    label: '平衡',
+    description: '默认推荐，兼顾通透与可读',
+    values: {
+      overlay: 0,
+      blur: 0,
+      scrimStrength: 1,
+      glassPanels: true,
+      brightness: 0
+    }
+  },
+  clear: {
+    label: '清晰',
+    description: '阅读优先，背景稍作虚化',
+    values: {
+      overlay: 0.18,
+      blur: 5,
+      scrimStrength: 1,
+      glassPanels: true,
+      // 花哨壁纸压暗一点更耐看
+      brightness: -12
+    }
+  }
+}
+
+/**
+ * 判断某组配置是否与某个预设完全一致，用于推导"当前属于哪一档"。
+ *
+ * @returns 匹配的预设名；都不匹配则为 'custom'
+ */
+export function matchPreset(settings: BackgroundSettings): BackgroundPreset {
+  const keys = [
+    'overlay',
+    'blur',
+    'scrimStrength',
+    'glassPanels',
+    'brightness'
+  ] as const
+
+  for (const [name, def] of Object.entries(BACKGROUND_PRESETS)) {
+    const same = keys.every(
+      k => settings[k] === def.values[k as keyof typeof def.values]
+    )
+    if (same) return name as BackgroundPreset
+  }
+  return 'custom'
+}
+
+/**
+ * 判断壁纸是否属于"忙碌型"（高细节 / 高饱和），用于给出预设建议。
+ *
+ * 判据来自分区采样：各区域主色差异大（色彩跳跃）或区域内亮度跨度大
+ * （细节密集、明暗交替）时，文字直接压上去最容易读不清，
+ * 这类图更适合"平衡/清晰"而非"沉浸"。
+ *
+ * @returns 是否需要提示用户选更清晰的档位
+ */
+export function isBusyWallpaper(
+  regions: ImageAnalysis['regions'] | undefined
+): boolean {
+  if (!regions) return false
+
+  const keys = ['sidebar', 'content', 'header', 'footer'] as const
+  const lums: number[] = []
+  for (const k of keys) {
+    const r = regions[k]
+    if (!r) continue
+    lums.push(r.luminance)
+  }
+  if (lums.length < 2) return false
+
+  // 区域间亮度差异：跨度大说明画面明暗分布不均
+  const lumSpread = Math.max(...lums) - Math.min(...lums)
+  if (lumSpread > 0.35) return true
+
+  // 区域内亮度跨度：极值差大说明细节密集
+  for (const k of keys) {
+    const ex = regions[k]?.extremes
+    if (!ex) continue
+    const [dr, dg, db] = hexToRgb(ex.darkest)
+    const [lr, lg, lb] = hexToRgb(ex.lightest)
+    const spread =
+      Math.abs(relativeLuminance(dr, dg, db) - relativeLuminance(lr, lg, lb))
+    if (spread > 0.45) return true
+  }
+  return false
+}
+
 /** 默认配置 */
 export const DEFAULT_BACKGROUND_SETTINGS: BackgroundSettings = {
   enabled: false,

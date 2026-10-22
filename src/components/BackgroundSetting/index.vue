@@ -62,11 +62,38 @@
 
     <!-- 仅在有图时显示调节项 -->
     <template v-if="bg.settings.activeImageId">
+      <!-- 预设档位：先给一组经验值，想细调再动下面的滑杆 -->
+      <div class="bg-setting__block">
+        <div class="bg-setting__block-title">
+          <span>效果预设</span>
+          <span class="hint" v-if="bg.currentPreset === 'custom'">自定义</span>
+        </div>
+        <div class="presets">
+          <button
+            v-for="(def, key) in BACKGROUND_PRESETS"
+            :key="key"
+            type="button"
+            class="preset"
+            :class="{ 'is-active': bg.currentPreset === key }"
+            @click="bg.applyPreset(key as Exclude<BackgroundPreset, 'custom'>)"
+          >
+            <span class="preset__name">{{ def.label }}</span>
+            <span class="preset__desc">{{ def.description }}</span>
+          </button>
+        </div>
+        <p class="tip" v-if="bg.isBusy">
+          这张图细节较多、明暗对比强，推荐用「平衡」或「清晰」。
+        </p>
+        <p class="tip">
+          点选即刻生效；之后拖动任一滑杆会自动变为「自定义」。
+        </p>
+      </div>
+
       <!-- 构图 -->
       <div class="bg-setting__block">
         <div class="bg-setting__block-title">
           <span>构图</span>
-          <el-button size="small" text @click="resetLayout">重置</el-button>
+          <el-button size="small" text @click="resetLayout">重置当前壁纸</el-button>
         </div>
 
         <!-- 实时预览：可直接在图上拖动定位 -->
@@ -404,9 +431,11 @@ import {
   createRenderableDataUrl,
   loadImage,
   sampleRegionsByGrid,
+  BACKGROUND_PRESETS,
   DARK_FOREGROUND,
   LIGHT_FOREGROUND,
   type BackgroundFit,
+  type BackgroundPreset,
   type FontColorMode,
   type BackgroundImageMeta
 } from '@/utils/background'
@@ -928,6 +957,49 @@ const hasStaleRegions = computed(() =>
 .slider-row :deep(.el-slider) {
   flex: 1;
 }
+
+/* 预设档位 */
+.presets {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.preset {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 10px 8px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: rgba(255, 255, 255, 0.06);
+  color: rgba(255, 255, 255, 0.9);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  text-align: left;
+}
+
+.preset:hover {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.preset.is-active {
+  border-color: var(--brand-accent, #7e22ce);
+  background: rgba(126, 34, 206, 0.22);
+}
+
+.preset__name {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.preset__desc {
+  font-size: 11px;
+  opacity: 0.7;
+  line-height: 1.3;
+}
+
+/* 预设档位 */
 
 /* 预览区：可拖动定位 */
 .preview {
