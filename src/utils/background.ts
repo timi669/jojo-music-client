@@ -148,9 +148,19 @@ export function contrastRatio(
   return (hi + 0.05) / (lo + 0.05)
 }
 
-/** hex -> [r,g,b] */
+/**
+ * hex -> [r,g,b]，永远返回有限数。
+ *
+ * 兼容性说明：非法输入（undefined/异常字符串/带 alpha 的 8 位值）会让
+ * parseInt 产出 NaN，进而把对比度算成 NaN/Infinity、面板显示成 "NaN:1"。
+ * 因此这里做归一化：剥离 alpha、逐通道回退 0，保证下游计算始终有意义。
+ */
 export function hexToRgb(hex: string): [number, number, number] {
-  const normalized = hex.replace('#', '').trim()
+  if (typeof hex !== 'string') return [0, 0, 0]
+  let normalized = hex.trim().replace(/^#/, '')
+  // 8 位/4 位是带 alpha 的写法，只取颜色部分
+  if (normalized.length === 8) normalized = normalized.slice(0, 6)
+  if (normalized.length === 4) normalized = normalized.slice(0, 3)
   const full =
     normalized.length === 3
       ? normalized
@@ -158,11 +168,12 @@ export function hexToRgb(hex: string): [number, number, number] {
           .map(c => c + c)
           .join('')
       : normalized
-  return [
-    parseInt(full.slice(0, 2), 16),
-    parseInt(full.slice(2, 4), 16),
-    parseInt(full.slice(4, 6), 16)
-  ]
+
+  const channel = (from: number) => {
+    const v = parseInt(full.slice(from, from + 2), 16)
+    return Number.isFinite(v) ? Math.max(0, Math.min(255, v)) : 0
+  }
+  return [channel(0), channel(2), channel(4)]
 }
 
 /** [r,g,b] -> hex */
@@ -640,18 +651,25 @@ export function pickForegroundForRegions(
 } {
   const keys = ['sidebar', 'content', 'header', 'footer', 'all'] as const
 
+  /** 合法的 6 位/3 位 hex 判定，避免非法底色把对比度算成 NaN/Infinity */
+  const isHex = (v: unknown): v is string =>
+    typeof v === 'string' && /^#?[0-9a-fA-F]{3}([0-9a-fA-F]{3})?$/.test(v.trim())
+
   const evaluate = (fgHex: string) => {
     const fg = hexToRgb(fgHex)
     const detail: Record<string, number> = {}
     let worst = Number.POSITIVE_INFINITY
     for (const k of keys) {
-      const bgHex =
-        overlayHexByRegion?.[k] ?? regions[k]?.averageColor ?? '#ffffff'
-      const r = contrastRatio(fg, hexToRgb(bgHex))
+      const candidate = overlayHexByRegion?.[k] ?? regions[k]?.averageColor
+      // 兜底为白色而非直接使用非法值，保证比值始终是有限数
+      const bgHex = isHex(candidate) ? candidate.trim() : '#ffffff'
+      const raw = contrastRatio(fg, hexToRgb(bgHex))
+      const r = Number.isFinite(raw) ? raw : 1
       detail[k] = Number(r.toFixed(2))
       if (r < worst) worst = r
     }
-    return { worst: Number(worst.toFixed(2)), detail }
+    const worstSafe = Number.isFinite(worst) ? worst : 1
+    return { worst: Number(worstSafe.toFixed(2)), detail }
   }
 
   const dark = evaluate(DARK_FOREGROUND)

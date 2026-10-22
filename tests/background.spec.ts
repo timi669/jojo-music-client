@@ -40,6 +40,36 @@ describe('hexToRgb / rgbToHex', () => {
     expect(hexToRgb('#f00')).toEqual([255, 0, 0])
   })
 
+  it('带 alpha 的 8 位/4 位写法只取颜色部分', () => {
+    expect(hexToRgb('#ff000080')).toEqual([255, 0, 0])
+    expect(hexToRgb('#f00f')).toEqual([255, 0, 0])
+  })
+
+  it('非法输入不产生 NaN/Infinity，安全回退', () => {
+    // 回归：早期实现对非法输入会让 parseInt 产出 NaN，
+    // 进而把对比度算成 NaN/Infinity，面板显示成 "NaN:1"
+    for (const bad of [
+      '',
+      'not-a-color',
+      '#zzz',
+      '#12',
+      'rgb(1,2,3)',
+      'undefined',
+      '#',
+      '#12345'
+    ]) {
+      const rgb = hexToRgb(bad)
+      expect(rgb).toHaveLength(3)
+      expect(rgb.every(v => Number.isFinite(v) && v >= 0 && v <= 255)).toBe(true)
+    }
+  })
+
+  it('对比度计算对非法颜色不会返回 NaN/Infinity', () => {
+    const r = contrastRatio(hexToRgb('#abc'), hexToRgb('garbage'))
+    expect(Number.isFinite(r)).toBe(true)
+    expect(r).toBeGreaterThanOrEqual(1)
+  })
+
   it('hex 与 rgb 可互转', () => {
     expect(rgbToHex(255, 0, 0)).toBe('#ff0000')
     expect(rgbToHex(126, 34, 206)).toBe('#7e22ce')
@@ -354,6 +384,135 @@ describe('默认配置与按图布局（回归：构图不应跨图串用）', (
   it('默认开启自动对比度适配、默认不跟随主题色', () => {
     expect(DEFAULT_BACKGROUND_SETTINGS.autoAdaptContrast).toBe(true)
     expect(DEFAULT_BACKGROUND_SETTINGS.themeFollow).toBe(false)
+  })
+})
+
+describe('配置归一化（回归：历史数据形态与缺失字段不应导致崩溃）', () => {
+  // 复刻 store 内 normalizeSettings 的规则，确保契约稳定。
+  // 之所以单独测：持久化是浅合并，历史键会残留、新键会缺失，
+  // 这里的行为直接决定"升级后能否正常打开"。
+  const num = (v: unknown, fallback: number, min: number, max: number) => {
+    const n = typeof v === 'number' && Number.isFinite(v) ? v : fallback
+    return Math.max(min, Math.min(max, n))
+  }
+  const normalize = (raw: Record<string, unknown>) => {
+    const merged = {
+      enabled: Boolean(raw.enabled ?? false),
+      activeImageId: typeof raw.activeImageId === 'string' ? raw.activeImageId : null,
+      perImageLayout:
+        raw.perImageLayout && typeof raw.perImageLayout === 'object'
+          ? (raw.perImageLayout as Record<string, { fit: string; scale: number; offsetX: number; offsetY: number }>)
+          : {},
+      opacity: num(raw.opacity, 1, 0.1, 1),
+      blur: num(raw.blur, 0, 0, 30),
+      brightness: num(raw.brightness, 0, -80, 80),
+      overlay: num(raw.overlay, 0, 0, 0.8),
+      autoAdaptContrast:
+        raw.autoAdaptContrast === undefined ? true : Boolean(raw.autoAdaptContrast),
+      themeFollow: Boolean(raw.themeFollow ?? false)
+    }
+    const legacyFit = typeof raw.fit === 'string' ? raw.fit : undefined
+    const legacyScale = typeof raw.scale === 'number' ? raw.scale : undefined
+    const legacyOffsetX = typeof raw.offsetX === 'number' ? raw.offsetX : undefined
+    const legacyOffsetY = typeof raw.offsetY === 'number' ? raw.offsetY : undefined
+    const hasLegacy =
+      legacyFit !== undefined ||
+      legacyScale !== undefined ||
+      legacyOffsetX !== undefined ||
+      legacyOffsetY !== undefined
+    if (hasLegacy && merged.activeImageId && !merged.perImageLayout[merged.activeImageId]) {
+      merged.perImageLayout = {
+        ...merged.perImageLayout,
+        [merged.activeImageId]: {
+          fit: ['cover', 'contain', 'fill'].includes(legacyFit as string)
+            ? (legacyFit as string)
+            : 'cover',
+          scale: num(legacyScale, 1, 1, 3),
+          offsetX: num(legacyOffsetX, 0, -50, 50),
+          offsetY: num(legacyOffsetY, 0, -50, 50)
+        }
+      }
+    }
+    delete (merged as Record<string, unknown>).fit
+    delete (merged as Record<string, unknown>).scale
+    delete (merged as Record<string, unknown>).offsetX
+    delete (merged as Record<string, unknown>).offsetY
+    return merged
+  }
+
+  it('全新用户（空对象）得到完整且安全的默认配置', () => {
+    const s = normalize({})
+    expect(s.opacity).toBe(1)
+    expect(s.blur).toBe(0)
+    expect(s.overlay).toBe(0)
+    expect(s.autoAdaptContrast).toBe(true)
+    expect(s.themeFollow).toBe(false)
+    expect(s.perImageLayout).toEqual({})
+    expect(s.activeImageId).toBeNull()
+  })
+
+  it('数值越界会被夹到合法区间', () => {
+    const s = normalize({ opacity: 5, blur: 999, brightness: -500, overlay: 3 })
+    expect(s.opacity).toBe(1)
+    expect(s.blur).toBe(30)
+    expect(s.brightness).toBe(-80)
+    expect(s.overlay).toBe(0.8)
+  })
+
+  it('非法数值（NaN/字符串）回退到默认值', () => {
+    const s = normalize({ opacity: NaN, blur: 'x', brightness: null })
+    expect(s.opacity).toBe(1)
+    expect(s.blur).toBe(0)
+    expect(s.brightness).toBe(0)
+  })
+
+  it('旧版全局构图会被迁移为当前图的 perImageLayout 并保留取值', () => {
+    const s = normalize({
+      activeImageId: 'img_1',
+      fit: 'contain',
+      scale: 2.2,
+      offsetX: 15,
+      offsetY: -8
+    })
+    expect(s.perImageLayout.img_1).toEqual({
+      fit: 'contain',
+      scale: 2.2,
+      offsetX: 15,
+      offsetY: -8
+    })
+  })
+
+  it('迁移后旧键被清除（避免残留在 localStorage）', () => {
+    const s = normalize({ activeImageId: 'img_1', fit: 'cover', scale: 1 })
+    expect('fit' in s).toBe(false)
+    expect('scale' in s).toBe(false)
+    expect('offsetX' in s).toBe(false)
+    expect('offsetY' in s).toBe(false)
+  })
+
+  it('无当前图时不迁移旧构图（没有可归属的图）', () => {
+    const s = normalize({ activeImageId: null, fit: 'contain', scale: 2 })
+    expect(s.perImageLayout).toEqual({})
+  })
+
+  it('已有 perImageLayout 时不覆盖（迁移只补空缺）', () => {
+    const s = normalize({
+      activeImageId: 'img_1',
+      perImageLayout: { img_1: { fit: 'fill', scale: 3, offsetX: 1, offsetY: 2 } },
+      fit: 'contain',
+      scale: 2
+    })
+    expect(s.perImageLayout.img_1).toEqual({
+      fit: 'fill',
+      scale: 3,
+      offsetX: 1,
+      offsetY: 2
+    })
+  })
+
+  it('非法 fit 值被纠正为 cover', () => {
+    const s = normalize({ activeImageId: 'x', fit: 'garbage', scale: 1 })
+    expect(s.perImageLayout.x.fit).toBe('cover')
   })
 })
 
