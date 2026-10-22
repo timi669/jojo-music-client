@@ -69,12 +69,33 @@
           <el-button size="small" text @click="resetLayout">重置</el-button>
         </div>
 
+        <!-- 实时预览：可直接在图上拖动定位 -->
+        <div
+          ref="previewRef"
+          class="preview"
+          :class="{ 'is-dragging': dragging }"
+          @pointerdown="onPreviewPointerDown"
+          @pointermove="onPreviewPointerMove"
+          @pointerup="onPreviewPointerUp"
+          @pointercancel="onPreviewPointerUp"
+        >
+          <div class="preview__image" :style="previewStyle"></div>
+          <div class="preview__overlay" :style="previewOverlayStyle"></div>
+          <div class="preview__hint" v-if="!dragging">按住拖动可调整位置</div>
+          <!-- 示意：侧边栏与内容区的大致分界，帮助判断文字将落在哪块底色上 -->
+          <div class="preview__guides" aria-hidden="true">
+            <span class="guide guide--sidebar"></span>
+            <span class="guide guide--header"></span>
+            <span class="guide guide--footer"></span>
+          </div>
+        </div>
+
         <div class="bg-setting__row">
           <span class="mini-label">填充方式</span>
           <el-radio-group
-            :model-value="bg.settings.fit"
+            :model-value="layout.fit"
             size="small"
-            @change="v => bg.update({ fit: v as BackgroundFit })"
+            @change="v => bg.updateLayout({ fit: v as BackgroundFit })"
           >
             <el-radio-button value="cover">填充(裁剪)</el-radio-button>
             <el-radio-button value="contain">完整显示</el-radio-button>
@@ -85,34 +106,38 @@
         <div class="slider-row">
           <span class="mini-label">缩放</span>
           <el-slider
-            :model-value="bg.settings.scale"
+            :model-value="layout.scale"
             :min="1"
             :max="3"
             :step="0.05"
             :format-tooltip="v => `${Math.round(v * 100)}%`"
-            @input="v => bg.update({ scale: v as number })"
+            @input="v => bg.updateLayout({ scale: v as number })"
           />
         </div>
 
         <div class="slider-row">
           <span class="mini-label">水平位置</span>
           <el-slider
-            :model-value="bg.settings.offsetX"
+            :model-value="layout.offsetX"
             :min="-50"
             :max="50"
-            @input="v => bg.update({ offsetX: v as number })"
+            @input="v => bg.updateLayout({ offsetX: v as number })"
           />
         </div>
 
         <div class="slider-row">
           <span class="mini-label">垂直位置</span>
           <el-slider
-            :model-value="bg.settings.offsetY"
+            :model-value="layout.offsetY"
             :min="-50"
             :max="50"
-            @input="v => bg.update({ offsetY: v as number })"
+            @input="v => bg.updateLayout({ offsetY: v as number })"
           />
         </div>
+
+        <p class="tip">
+          构图参数按每张壁纸单独保存，换图不会互相影响。
+        </p>
       </div>
 
       <!-- 视觉 -->
@@ -184,10 +209,21 @@
         <div class="bg-setting__block-title">
           <span>文字颜色</span>
           <span class="contrast-badge" :class="contrastClass">
-            对比度 {{ bg.currentContrast }}:1
-            <template v-if="bg.currentContrast >= 4.5">（达标 AA）</template>
+            最差区域 {{ bg.currentContrast }}:1
+            <template v-if="bg.currentContrast >= 4.5">（全区域达标 AA）</template>
             <template v-else-if="bg.currentContrast >= 3">（仅达大字标准）</template>
             <template v-else>（偏低）</template>
+          </span>
+        </div>
+
+        <div class="bg-setting__row">
+          <span class="mini-label">自动适配</span>
+          <el-switch
+            :model-value="bg.settings.autoAdaptContrast"
+            @change="v => bg.update({ autoAdaptContrast: Boolean(v) })"
+          />
+          <span class="hint">
+            对比度不足时自动补一层遮罩，不用你手动调
           </span>
         </div>
 
@@ -199,16 +235,15 @@
           class="mb-3"
         >
           <template #default>
-            当前文字与背景对比度不足，可能不好辨认。
-            <el-button
-              size="small"
-              type="primary"
-              link
-              @click="applySuggestedOverlay"
-            >
-              一键优化（提高遮罩到
-              {{ Math.round(bg.suggestedOverlay * 100) }}%）
-            </el-button>
+            最不利区域仅 {{ bg.currentContrast }}:1，可能不好辨认。
+            <template v-if="!bg.settings.autoAdaptContrast">
+              <el-button size="small" type="primary" link @click="applySuggestedOverlay">
+                一键优化（遮罩提到 {{ Math.round(bg.suggestedOverlayPlan.opacity * 100) }}%）
+              </el-button>
+            </template>
+            <template v-else>
+              （自动适配已开启，可调高"内容遮罩"手动改善）
+            </template>
           </template>
         </el-alert>
 
@@ -223,6 +258,21 @@
             <el-radio-button value="light">浅色文字</el-radio-button>
             <el-radio-button value="dark">深色文字</el-radio-button>
           </el-radio-group>
+        </div>
+
+        <!-- 分区对比度明细：让人知道"哪一块最不利" -->
+        <div class="bg-setting__row" v-if="activeMeta && contrastRows.length">
+          <span class="mini-label">各区对比度</span>
+          <div class="region-ratios">
+            <span
+              v-for="row in contrastRows"
+              :key="row.key"
+              class="ratio-chip"
+              :class="row.ratio >= 4.5 ? 'is-good' : row.ratio >= 3 ? 'is-fair' : 'is-poor'"
+            >
+              {{ row.label }} {{ row.ratio }}:1
+            </span>
+          </div>
         </div>
 
         <div class="bg-setting__row" v-if="bg.settings.fontColorMode === 'auto'">
@@ -254,7 +304,7 @@
         <div class="bg-setting__row">
           <span class="mini-label">跟随壁纸主色</span>
           <el-switch
-            :model-value="followDominant"
+            :model-value="bg.settings.themeFollow"
             @change="onToggleFollowDominant"
           />
         </div>
@@ -262,14 +312,13 @@
           <span class="mini-label">主色</span>
           <span class="swatch" :style="{ background: activeMeta.dominantColor }"></span>
           <span class="mono">{{ activeMeta.dominantColor }}</span>
-          <el-button
-            size="small"
-            text
-            @click="applyDominantAsPrimary"
-          >
-            应用为主色
+          <el-button size="small" text @click="applyDominantAsPrimary">
+            立即应用
           </el-button>
         </div>
+        <p class="tip" v-if="bg.settings.themeFollow">
+          开启后，切换壁纸时会自动按新壁纸的主色更新主题色。
+        </p>
       </div>
 
       <div class="bg-setting__row">
@@ -316,6 +365,9 @@ const followDominant = ref(false)
 
 const activeMeta = computed(() => bg.activeImage)
 
+/** 当前图的构图参数（按图保存，直接读 store 的 getter） */
+const layout = computed(() => bg.activeLayout)
+
 const contrastClass = computed(() => {
   const r = bg.currentContrast
   if (r >= 4.5) return 'is-good'
@@ -323,8 +375,98 @@ const contrastClass = computed(() => {
   return 'is-poor'
 })
 
+/* ------------------------------------------------------------------ *
+ *  在预览图上直接拖动定位
+ *
+ *  只靠滑块调位置不够直观：用户想"把人物的脸挪到中间"时，
+ *  只能反复猜滑块方向。这里支持在预览图上按住拖动，
+ *  位移量换算成百分比写回 perImageLayout。
+ * ------------------------------------------------------------------ */
+const previewRef = ref<HTMLElement | null>(null)
+const dragging = ref(false)
+let dragStart = { x: 0, y: 0, offsetX: 0, offsetY: 0 }
+
+function onPreviewPointerDown(e: PointerEvent) {
+  if (!bg.settings.activeImageId) return
+  const el = previewRef.value
+  if (!el) return
+  dragging.value = true
+  dragStart = {
+    x: e.clientX,
+    y: e.clientY,
+    offsetX: layout.value.offsetX,
+    offsetY: layout.value.offsetY
+  }
+  el.setPointerCapture?.(e.pointerId)
+}
+
+function onPreviewPointerMove(e: PointerEvent) {
+  if (!dragging.value) return
+  const el = previewRef.value
+  if (!el) return
+  const rect = el.getBoundingClientRect()
+  if (!rect.width || !rect.height) return
+  // 把像素位移换算为百分比（以预览框尺寸为基准），并夹到滑动条范围内
+  const dx = ((e.clientX - dragStart.x) / rect.width) * 100
+  const dy = ((e.clientY - dragStart.y) / rect.height) * 100
+  const clamp = (v: number) => Math.max(-50, Math.min(50, v))
+  bg.updateLayout({
+    offsetX: Number(clamp(dragStart.offsetX + dx).toFixed(1)),
+    offsetY: Number(clamp(dragStart.offsetY + dy).toFixed(1))
+  })
+}
+
+function onPreviewPointerUp(e: PointerEvent) {
+  if (!dragging.value) return
+  dragging.value = false
+  previewRef.value?.releasePointerCapture?.(e.pointerId)
+}
+
+/** 预览图的内联样式，与真实背景层用同一套变量，所见即所得 */
+const previewStyle = computed(() => {
+  const url = bg.activeUrl
+  if (!url) return {}
+  const l = layout.value
+  return {
+    backgroundImage: `url("${url}")`,
+    backgroundSize: l.fit,
+    backgroundPosition: 'center center',
+    transform: `translate(${l.offsetX}%, ${l.offsetY}%) scale(${l.scale})`,
+    filter: `blur(${bg.settings.blur}px) brightness(${1 + bg.settings.brightness / 100})`,
+    opacity: String(bg.settings.opacity)
+  }
+})
+
+/** 预览图上叠加的遮罩（与真实效果一致，方便判断可读性） */
+const previewOverlayStyle = computed(() => {
+  const rgb = bg.resolvedOverlayTone === 'white' ? '255, 255, 255' : '0, 0, 0'
+  const opacity = bg.settings.overlay
+  return { background: `rgba(${rgb}, ${opacity})` }
+})
+
+/** 分区对比度明细（面板展示"哪块最不利"） */
+const REGION_LABELS: Record<string, string> = {
+  sidebar: '侧边栏',
+  content: '内容区',
+  header: '顶栏',
+  footer: '底栏',
+  all: '整体'
+}
+const contrastRows = computed(() => {
+  const detail = bg.contrastDetail as Record<string, number>
+  return Object.entries(detail)
+    .filter(([k]) => k !== 'all')
+    .map(([k, ratio]) => ({
+      key: k,
+      label: REGION_LABELS[k] ?? k,
+      ratio
+    }))
+    .sort((a, b) => a.ratio - b.ratio)
+})
+
 onMounted(async () => {
   await bg.loadImages()
+  followDominant.value = bg.settings.themeFollow
 })
 
 /** 缩略图（直接复用存储中的降采样图，体积已很小） */
@@ -407,7 +549,9 @@ async function importFile(file: File, alsoUpload: boolean) {
       luminance: analysis.luminance,
       averageLuminance: analysis.averageLuminance,
       averageColor: analysis.averageColor,
-      dominantColor: analysis.dominantColor
+      dominantColor: analysis.dominantColor,
+      // 分区采样：用于挑一个"在各区域都可读"的文字色
+      regions: analysis.regions
     }
 
     await putBackgroundImage({ meta, blob, original: file })
@@ -489,7 +633,7 @@ async function onDelete(img: BackgroundImageMeta) {
 }
 
 function resetLayout() {
-  bg.update({ fit: 'cover', scale: 1, offsetX: 0, offsetY: 0 })
+  bg.updateLayout({ fit: 'cover', scale: 1, offsetX: 0, offsetY: 0 })
 }
 
 function onFontModeChange(mode: FontColorMode) {
@@ -516,21 +660,21 @@ function applySuggestedOverlay() {
   ElMessage.success('已优化遮罩，对比度已改善')
 }
 
-/** 一键把壁纸主色作为主题色 */
+/** 一键把壁纸主色作为主题色（同时打开"跟随"，换图时会自动重算） */
 function applyDominantAsPrimary() {
   const meta = bg.activeImage
   if (!meta) return
   theme.setPrimary(normalizePrimary(meta.dominantColor))
   followDominant.value = true
+  bg.update({ themeFollow: true })
   ElMessage.success('主题色已跟随壁纸主色')
 }
 
 function onToggleFollowDominant(v: boolean | string | number) {
   const on = Boolean(v)
   followDominant.value = on
-  if (on) {
-    applyDominantAsPrimary()
-  }
+  bg.setThemeFollow(on)
+  if (on) ElMessage.success('已开启跟随，切换壁纸时会自动更新主题色')
 }
 
 function onResetAll() {
@@ -603,6 +747,124 @@ function onResetAll() {
 
 .slider-row :deep(.el-slider) {
   flex: 1;
+}
+
+/* 预览区：可拖动定位 */
+.preview {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--el-fill-color-light);
+  border: 1px solid var(--el-border-color-lighter);
+  cursor: grab;
+  touch-action: none; /* 允许 pointer 拖动而不触发滚动 */
+  user-select: none;
+}
+
+.preview.is-dragging {
+  cursor: grabbing;
+}
+
+.preview__image {
+  position: absolute;
+  inset: 0;
+  background-position: center center;
+  background-repeat: no-repeat;
+  transition: transform 0.15s ease, filter 0.15s ease, opacity 0.15s ease;
+}
+
+.preview.is-dragging .preview__image {
+  /* 拖动时去掉过渡，避免滞后感 */
+  transition: none;
+}
+
+.preview__overlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.preview__hint {
+  position: absolute;
+  left: 50%;
+  bottom: 8px;
+  transform: translateX(-50%);
+  padding: 2px 10px;
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.5);
+  color: #fff;
+  font-size: 12px;
+  pointer-events: none;
+}
+
+/* 布局示意线：帮助判断文字会落在哪块底色上 */
+.preview__guides {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.preview__guides .guide {
+  position: absolute;
+  background: rgba(255, 255, 255, 0.35);
+  outline: 1px dashed rgba(0, 0, 0, 0.25);
+}
+
+.preview__guides .guide--sidebar {
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 20%;
+}
+
+.preview__guides .guide--header {
+  left: 0;
+  right: 0;
+  top: 0;
+  height: 8%;
+}
+
+.preview__guides .guide--footer {
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 10%;
+}
+
+.tip {
+  margin: 10px 0 0;
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+}
+
+/* 分区对比度小标签 */
+.region-ratios {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.ratio-chip {
+  font-size: 12px;
+  padding: 1px 8px;
+  border-radius: 9px;
+}
+
+.ratio-chip.is-good {
+  background: var(--el-color-success-light-9);
+  color: var(--el-color-success);
+}
+
+.ratio-chip.is-fair {
+  background: var(--el-color-warning-light-9);
+  color: var(--el-color-warning);
+}
+
+.ratio-chip.is-poor {
+  background: var(--el-color-danger-light-9);
+  color: var(--el-color-danger);
 }
 
 .empty {

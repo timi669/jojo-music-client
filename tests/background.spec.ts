@@ -8,10 +8,26 @@ import {
   pickReadableForeground,
   suggestOverlayOpacity,
   suggestOverlay,
+  suggestOverlayForRegions,
+  deriveMutedForeground,
+  pickForegroundForRegions,
   normalizePrimary,
+  DEFAULT_IMAGE_LAYOUT,
+  DEFAULT_BACKGROUND_SETTINGS,
   DARK_FOREGROUND,
-  LIGHT_FOREGROUND
+  LIGHT_FOREGROUND,
+  type RegionSample
 } from '../src/utils/background'
+
+/** 造一个 RegionSample（只需 averageColor，其余从它推导） */
+const region = (hex: string): RegionSample => {
+  const [r, g, b] = hexToRgb(hex)
+  return {
+    averageColor: hex,
+    luminance: relativeLuminance(r, g, b),
+    dominantColor: hex
+  }
+}
 
 describe('hexToRgb / rgbToHex', () => {
   it('解析 6 位 hex', () => {
@@ -193,6 +209,151 @@ describe('次级文字色（表头/辅助说明）应比主文字淡一档但保
     ]) {
       expect(mutedFrom(fg, bg)).toMatch(/^#[0-9a-f]{6}$/)
     }
+  })
+})
+
+describe('pickForegroundForRegions（分区选色：保证没有区域看不清）', () => {
+  const mkRegions = (
+    sidebar: string,
+    content: string,
+    header: string,
+    footer: string,
+    all: string
+  ) => ({
+    sidebar: region(sidebar),
+    content: region(content),
+    header: region(header),
+    footer: region(footer),
+    all: region(all)
+  })
+
+  it('全暗壁纸：选浅色文字且所有区域达标', () => {
+    const regions = mkRegions('#0b1020', '#141c30', '#101828', '#0d1424', '#12192b')
+    const r = pickForegroundForRegions(regions)
+    expect(r.hex).toBe(LIGHT_FOREGROUND)
+    expect(r.meetsAAEverywhere).toBe(true)
+  })
+
+  it('全亮壁纸：选深色文字且所有区域达标', () => {
+    const regions = mkRegions('#f2ede4', '#efe8dc', '#f5f1ea', '#eee6d8', '#f1ebe1')
+    const r = pickForegroundForRegions(regions)
+    expect(r.hex).toBe(DARK_FOREGROUND)
+    expect(r.meetsAAEverywhere).toBe(true)
+  })
+
+  it('左暗右亮（整图平均会误判）：应按"最差区域"决策而非平均色', () => {
+    // 侧边栏很暗、内容区很亮。若只看整图平均（中间灰），两侧都会偏。
+    const regions = mkRegions('#000000', '#ffffff', '#808080', '#808080', '#808080')
+    const r = pickForegroundForRegions(regions)
+    // 无论选哪种，都不可能同时在纯黑与纯白上达标 —— 应如实报告
+    expect(r.meetsAAEverywhere).toBe(false)
+    // 但必须返回一个确定的选择，且 worstRatio 反映真实最差情况
+    expect([DARK_FOREGROUND, LIGHT_FOREGROUND]).toContain(r.hex)
+    expect(r.worstRatio).toBeLessThan(4.5)
+  })
+
+  it('worstRatio 等于各区域对比度的最小值', () => {
+    const regions = mkRegions('#0b1020', '#f2ede4', '#808080', '#0b1020', '#808080')
+    const r = pickForegroundForRegions(regions)
+    const min = Math.min(...Object.values(r.detail))
+    expect(r.worstRatio).toBeCloseTo(min, 1)
+  })
+
+  it('detail 覆盖全部区域', () => {
+    const regions = mkRegions('#111111', '#222222', '#333333', '#444444', '#555555')
+    const r = pickForegroundForRegions(regions)
+    expect(Object.keys(r.detail).sort()).toEqual(
+      ['all', 'content', 'footer', 'header', 'sidebar'].sort()
+    )
+  })
+})
+
+describe('suggestOverlayForRegions（遮罩浓度取各区域最大值）', () => {
+  it('应至少满足"最难的那个区域"，而非平均色所需的浓度', () => {
+    const colors = ['#767676', '#7a7a7a', '#6f6f6f']
+    const fg = DARK_FOREGROUND
+    const plan = suggestOverlayForRegions(colors, fg)
+    expect(plan.tone).toBe('white') // 深色文字必须配白色遮罩
+    // 用该浓度逐一验证所有区域都达标
+    for (const bg of colors) {
+      const bgRgb = hexToRgb(bg)
+      const mixed: [number, number, number] = [
+        bgRgb[0] * (1 - plan.opacity) + 255 * plan.opacity,
+        bgRgb[1] * (1 - plan.opacity) + 255 * plan.opacity,
+        bgRgb[2] * (1 - plan.opacity) + 255 * plan.opacity
+      ]
+      expect(contrastRatio(hexToRgb(fg), mixed)).toBeGreaterThanOrEqual(4.5)
+    }
+  })
+
+  it('浓度必须取最大需求：单一区域够用不代表全部够用', () => {
+    // 其中一块比另一块更接近中灰，需要更浓的遮罩
+    const easier = '#a0a0a0'
+    const harder = '#808080'
+    const fg = DARK_FOREGROUND
+    const onlyEasier = suggestOverlayForRegions([easier], fg).opacity
+    const both = suggestOverlayForRegions([easier, harder], fg).opacity
+    expect(both).toBeGreaterThanOrEqual(onlyEasier)
+  })
+
+  it('全部区域已达标时返回 0', () => {
+    const plan = suggestOverlayForRegions(['#000000', '#050505'], LIGHT_FOREGROUND)
+    expect(plan.opacity).toBe(0)
+  })
+})
+
+describe('deriveMutedForeground（次级色按目标对比度回推）', () => {
+  it('在暗背景上：次级色仍达到目标对比度', () => {
+    const bg = '#0b1020'
+    const muted = deriveMutedForeground(LIGHT_FOREGROUND, bg, 4.0)
+    expect(contrastRatio(hexToRgb(muted), hexToRgb(bg))).toBeGreaterThanOrEqual(4.0)
+  })
+
+  it('在亮背景上：次级色仍达到目标对比度（旧实现无法保证）', () => {
+    const bg = '#f2ede4'
+    const muted = deriveMutedForeground(DARK_FOREGROUND, bg, 4.0)
+    expect(contrastRatio(hexToRgb(muted), hexToRgb(bg))).toBeGreaterThanOrEqual(4.0)
+  })
+
+  it('次级色比主文字色更靠近背景（形成层次）', () => {
+    const bg = '#0b1020'
+    const primary = contrastRatio(hexToRgb(LIGHT_FOREGROUND), hexToRgb(bg))
+    const muted = contrastRatio(
+      hexToRgb(deriveMutedForeground(LIGHT_FOREGROUND, bg, 4.0)),
+      hexToRgb(bg)
+    )
+    expect(muted).toBeLessThan(primary)
+  })
+
+  it('主文字色本身不达标时直接返回主色（不做出比主色更差的选择）', () => {
+    const bg = '#767676'
+    const muted = deriveMutedForeground(DARK_FOREGROUND, bg, 4.5)
+    expect(muted).toBe(DARK_FOREGROUND)
+  })
+})
+
+describe('默认配置与按图布局（回归：构图不应跨图串用）', () => {
+  it('默认构图参数为 cover / 1 / 无偏移', () => {
+    expect(DEFAULT_IMAGE_LAYOUT.fit).toBe('cover')
+    expect(DEFAULT_IMAGE_LAYOUT.scale).toBe(1)
+    expect(DEFAULT_IMAGE_LAYOUT.offsetX).toBe(0)
+    expect(DEFAULT_IMAGE_LAYOUT.offsetY).toBe(0)
+  })
+
+  it('默认配置里构图参数位于 perImageLayout（而非全局），避免换图串用', () => {
+    expect(DEFAULT_BACKGROUND_SETTINGS.perImageLayout).toEqual({})
+    // 旧的全局字段不应再存在
+    expect(
+      (DEFAULT_BACKGROUND_SETTINGS as unknown as Record<string, unknown>).scale
+    ).toBeUndefined()
+    expect(
+      (DEFAULT_BACKGROUND_SETTINGS as unknown as Record<string, unknown>).offsetX
+    ).toBeUndefined()
+  })
+
+  it('默认开启自动对比度适配、默认不跟随主题色', () => {
+    expect(DEFAULT_BACKGROUND_SETTINGS.autoAdaptContrast).toBe(true)
+    expect(DEFAULT_BACKGROUND_SETTINGS.themeFollow).toBe(false)
   })
 })
 
