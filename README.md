@@ -137,18 +137,31 @@
 
 ## 项目截图
 
+### 账号与首页
+
 ![登录界面](./img/client_login.png)
+![注册界面](./img/client_register.png)
 ![推荐界面](./img/client_home.png)
 ![歌曲推荐界面](./img/client_recommended.png)
+
+### 曲库浏览
+
 ![曲库界面](./img/client_song_library.png)
 ![歌手列表界面](./img/client_artist.png)
 ![歌手详情界面](./img/client_artist_detail.png)
 ![歌单列表界面](./img/client_playlist.png)
 ![歌单详情界面](./img/client_playlist_detail.png)
 ![歌单评论界面](./img/client_playlist_comment.png)
-![我的喜欢界面](./img/client_favourite.png)
+
+### 播放与个人
+
 ![歌曲播放界面](./img/client_song_play.png)
+![我的喜欢界面](./img/client_favourite.png)
 ![个人中心界面](./img/client_profile.png)
+
+### 自定义背景（壁纸）
+
+![自定义背景设置界面](./img/client_background.png)
 
 ## 后端依赖
 
