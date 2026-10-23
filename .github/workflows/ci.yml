@@ -31,11 +31,16 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      # Build must run before type-check. The unplugin-auto-import /
+      # unplugin-vue-components plugins write src/auto-import/*.d.ts, but that
+      # directory is gitignored, so a fresh checkout has no declarations and
+      # vue-tsc fails with "Cannot find name 'watch'/'computed'/'themeStore'"
+      # across the whole codebase. vite build generates them.
+      - name: Build
+        run: pnpm run build
+
       - name: Type check
         run: pnpm run type-check
 
       - name: Unit tests
         run: pnpm test
-
-      - name: Build
-        run: pnpm run build
