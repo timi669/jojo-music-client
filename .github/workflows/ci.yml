@@ -17,8 +17,10 @@ jobs:
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
-        with:
-          version: 9
+        # No "version" here on purpose: package.json already declares
+        # packageManager: pnpm@9.15.2. Specifying it in both places makes
+        # pnpm/action-setup fail with ERR_PNPM_BAD_PM_VERSION, which aborted
+        # every run at this step (11s, before install).
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
