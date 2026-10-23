@@ -283,6 +283,17 @@ html.dark:root[data-bg-glass='1'] .el-table {
  *  必须在该子树里重新声明才能挡住。
  * ------------------------------------------------------------------ */
 [data-bg-exempt] {
+  /*
+   * 必须显式设置 color 属性本身，而不只是还原变量。
+   *
+   * 原因：body 上有 `@apply text-foreground`，它在 body 上就把 color
+   * 解析成了壁纸推导出的文字色（浅色）。变量是在 body 之后才被"往下"继承，
+   * 单靠在本子树重声明 --foreground 无法改变"已经从 body 继承下来的 color"。
+   * 结果就是：抽屉背景是浅色，而没有任何颜色类的普通文字（例如评论正文）
+   * 继承了 body 的浅色 —— 白字压白底，几乎不可见。
+   */
+  color: hsl(222.2 84% 4.9%);
+
   /* 恢复 tailwind 文字色为项目原始默认 */
   --foreground: 222.2 84% 4.9%;
   --card-foreground: 222.2 84% 4.9%;
@@ -313,6 +324,9 @@ html.dark:root[data-bg-glass='1'] .el-table {
 }
 
 html.dark [data-bg-exempt] {
+  /* 深色模式下同样要显式设置（否则会继承 body 的浅色文字） */
+  color: hsl(210 40% 98%);
+
   --foreground: 210 40% 98%;
   --card-foreground: 210 40% 98%;
   --popover-foreground: 210 40% 98%;

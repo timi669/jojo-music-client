@@ -1,7 +1,10 @@
 /**
- * Local stand-in for Vibe Music Server + MinIO.
- * Serves files from the vibe-music-data folder and answers the APIs
+ * Local stand-in for the JOJO Music Server + MinIO.
+ * Serves files from the local media folder and answers the APIs
  * the Vue client already calls on http://localhost:8080.
+ *
+ * 注：VIBE_MUSIC_DATA 是磁盘上的既有目录名，改品牌名时不要动它，
+ * 否则脚本找不到媒体文件。
  */
 import http from 'node:http'
 import fs from 'node:fs'

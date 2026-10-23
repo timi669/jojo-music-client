@@ -1,8 +1,17 @@
 <script setup lang="ts">
-import { getPlaylistDetail, addPlaylistComment, likeComment, deleteComment } from '@/api/system'
+import {
+  getPlaylistDetail,
+  addPlaylistComment,
+  likeComment,
+  cancelLikeComment,
+  dislikeComment,
+  cancelDislikeComment,
+  deleteComment,
+} from '@/api/system'
 import { formatNumber } from '@/utils'
-import type { PlaylistDetail, Song } from '@/api/interface'
+import type { PlaylistDetail, Song, PlaylistComment } from '@/api/interface'
 import coverImg from '@/assets/cover.png'
+import brandMark from '@/assets/brand/logo-B-mark.svg'
 import { usePlaylistStore } from '@/stores/modules/playlist'
 import { useFavoriteStore } from '@/stores/modules/favorite'
 import { ElMessage } from 'element-plus'
@@ -40,14 +49,13 @@ const toggleCollect = async () => {
   }
 }
 
-interface PlaylistComment {
-  commentId: number
-  username: string
-  userAvatar: string
-  content: string
-  createTime: string
-  likeCount: number
-}
+/*
+ * 评论类型统一使用 @/api/interface 里的 PlaylistComment。
+ *
+ * 原实现在本文件里又声明了一份同名 interface（字段更少、且 userAvatar
+ * 少了 null），与共享类型各说各话 —— 这正是"改了 api/interface 却不生效"
+ * 的原因：局部声明把导入的类型遮蔽了。这里删掉局部定义，只保留一份权威类型。
+ */
 
 // 评论相关
 const commentContent = ref('')
@@ -109,40 +117,94 @@ const handleComment = async () => {
   }
 }
 
-// 处理点赞
+/**
+ * 处理点赞。
+ *
+ * 原实现每次都 +1（可无限点高）；现加界面层防重复与互斥：
+ * 同一评论只能点一次赞，再点视为取消；若此前倒赞过则自动撤回倒赞。
+ */
 const handleLike = async (comment: PlaylistComment) => {
   if (!userStore.isLoggedIn) {
     ElMessage.warning('请先登录')
     return
   }
+  const id = comment.commentId
+  const alreadyLiked = myLikes.has(id)
 
   try {
-    // 调用点赞接口
-    const res = await likeComment(comment.commentId)
+    const res = alreadyLiked ? await cancelLikeComment(id) : await likeComment(id)
     if (res.code === 0) {
-      // 更新评论的点赞数量
-      const updatedComments = comments.value.map(item => {
-        if (item.commentId === comment.commentId) {
-          return {
-            ...item,
-            likeCount: item.likeCount + 1
-          }
+      if (alreadyLiked) {
+        myLikes.delete(id)
+      } else {
+        if (myDislikes.has(id)) {
+          myDislikes.delete(id)
+          await cancelDislikeComment(id)
         }
-        return item
-      })
-      
-      // 更新到store
-      playlistStore.setPlaylistInfo({
-        ...playlistStore.playlist!,
-        comments: updatedComments
-      })
-
-      ElMessage.success('点赞成功')
+        myLikes.add(id)
+      }
+      await refreshPlaylist()
+      ElMessage.success(alreadyLiked ? '已取消点赞' : '点赞成功')
     }
   } catch (error) {
-    ElMessage.error('点赞失败')
+    ElMessage.error(alreadyLiked ? '取消点赞失败' : '点赞失败')
   }
 }
+
+/** 处理倒赞（点踩）。与点赞互斥。 */
+const handleDislike = async (comment: PlaylistComment) => {
+  if (!userStore.isLoggedIn) {
+    ElMessage.warning('请先登录')
+    return
+  }
+  const id = comment.commentId
+  const alreadyDisliked = myDislikes.has(id)
+
+  try {
+    const res = alreadyDisliked
+      ? await cancelDislikeComment(id)
+      : await dislikeComment(id)
+    if (res.code === 0) {
+      if (alreadyDisliked) {
+        myDislikes.delete(id)
+      } else {
+        if (myLikes.has(id)) {
+          myLikes.delete(id)
+          await cancelLikeComment(id)
+        }
+        myDislikes.add(id)
+      }
+      await refreshPlaylist()
+      ElMessage.success(alreadyDisliked ? '已取消倒赞' : '已倒赞')
+    }
+  } catch (error) {
+    ElMessage.error(alreadyDisliked ? '取消倒赞失败' : '倒赞失败')
+  }
+}
+
+/**
+ * 以服务端为准刷新歌单详情。
+ * 点赞与倒赞互斥时会同时影响两个计数，手工增减极易算错，故直接重拉。
+ */
+const refreshPlaylist = async () => {
+  const playlistId = route.params.id
+  if (!playlistId) return
+  const res = await getPlaylistDetail(Number(playlistId))
+  if (res.code !== 0 || !res.data) return
+
+  const playlistData = res.data as unknown as PlaylistDetail
+  // 只更新评论列表与评论数：点赞/倒赞不会影响歌曲或歌单本身信息，
+  // 因此没必要重建整个 store（重建会连带覆盖歌曲列表，徒增抖动）。
+  playlistStore.setPlaylistInfo({
+    ...playlistStore.playlist!,
+    comments: (playlistData.comments || []) as PlaylistComment[],
+    commentCount: playlistData.comments?.length || 0
+  })
+}
+
+/** 我已点赞 / 我已倒赞的评论 id（界面层防重复与互斥） */
+const myLikes = reactive(new Set<number>())
+const myDislikes = reactive(new Set<number>())
 
 // 删除评论
 const handleDelete = async (comment: PlaylistComment) => {
@@ -196,8 +258,10 @@ watch(
           description: playlistData.introduction,
           coverImgUrl: playlistData.coverUrl || coverImg,
           creator: {
-            nickname: 'Vibe Music',
-            avatarUrl: coverImg
+            // 歌单归属统一显示为本站品牌（此前误用了旧项目名 Vibe Music）。
+            nickname: 'JOJO Music',
+            // 头像用品牌标记（金环嵌星），而非默认封面占位图。
+            avatarUrl: brandMark
           },
           trackCount: playlistData.songs.length,
           tracks: convertedSongs,
@@ -333,8 +397,8 @@ const handlePlayAll = async () => {
                     <div class="flex items-center gap-2">
                       <span class="text-sm font-medium text-brand">{{ comment.username }}</span>
                     </div>
-                    <p class="text-sm mt-1 mb-2">{{ comment.content }}</p>
-                    <div class="flex items-center justify-between text-sm text-gray-400">
+                    <p class="text-sm mt-1 mb-2 text-[hsl(222.2_84%_4.9%)] dark:text-[hsl(210_40%_98%)]">{{ comment.content }}</p>
+                    <div class="flex items-center justify-between text-sm text-[hsl(215.4_16.3%_46.9%)] dark:text-[hsl(215_20.2%_65.1%)]">
                       <span class="text-xs">{{ comment.createTime }}</span>
                       <div class="flex items-center gap-4">
                         <!-- 如果是用户自己的评论，显示删除按钮 -->
@@ -345,12 +409,22 @@ const handlePlayAll = async () => {
                           <icon-material-symbols:delete-outline />
                           <span>删除</span>
                         </button>
-                        <button 
-                          class="flex items-center gap-1 hover:text-gray-600 mr-1"
+                        <button
+                          class="flex items-center gap-1 mr-1 transition-colors"
+                          :class="myLikes.has(comment.commentId) ? 'text-[hsl(222.2_47.4%_11.2%)] dark:text-white font-medium' : 'hover:text-[hsl(222.2_47.4%_11.2%)] dark:hover:text-white'"
                           @click="handleLike(comment)"
                         >
                           <span>{{ formatNumber(comment.likeCount) }}</span>
                           <icon-material-symbols:thumb-up />
+                        </button>
+                        <!-- 倒赞（点踩）：与点赞互斥 -->
+                        <button
+                          class="flex items-center gap-1 transition-colors"
+                          :class="myDislikes.has(comment.commentId) ? 'text-red-500 font-medium' : 'hover:text-red-500'"
+                          @click="handleDislike(comment)"
+                        >
+                          <span>{{ formatNumber(comment.dislikeCount || 0) }}</span>
+                          <icon-material-symbols:thumb-down />
                         </button>
                       </div>
                     </div>
