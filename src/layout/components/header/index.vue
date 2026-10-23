@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { Icon } from '@iconify/vue'
 import Avatar from './components/avatar.vue'
+import BrandWordmark from '@/components/Brand/BrandWordmark.vue'
 const route = useRoute()
 const router = useRouter()
 const currentIcon = ref('material-symbols:wb-sunny-outline-rounded')
@@ -46,11 +47,16 @@ watch(
 </script>
 <template>
   <header class="px-4 py-2 border-b flex items-center">
-    <button class="flex relative w-60" @click="router.push('/')">
-      <img src="\logo.svg" alt="logo" class="w-10 h-10 ml-2" />
-      <span class="ml-3 text-2xl font-bold flex justify-center items-center"
-        >JOJO Music</span
-      >
+    <!-- 品牌字标（B 方案 v2 · 横排版 JOJO ◆ MUSIC）。
+         v2 要求顶栏高度 36–42px：MUSIC 字号只有主行 40%，低于 32px 会读不清。
+         横排版宽高比 4.725，40px 高约 189px 宽。
+         左对齐：去掉额外的 ml，让字标与 header 自身内边距（x=16）齐平，
+         与下方 aside 的外边距同一条竖线。
+         右侧留白：字标墨迹到搜索框原本只有约 2px，过于拥挤，故用 pl-0 pr-14
+         给按钮加右内边距（而非 margin），间距计入按钮自身宽度，
+         不会把后面的搜索框推离原有位置。 -->
+    <button class="flex shrink-0 items-center pl-0 pr-14" aria-label="返回首页" @click="router.push('/')">
+      <BrandWordmark :height="40" />
     </button>
     <!-- 输入框和头像 -->
     <div class="flex items-center gap-3">
