@@ -16,7 +16,8 @@ export interface PlaylistComment {
     userAvatar: string | null
     content: string
     createTime: string
-    likeCount: number
+    likeCount: number
+    dislikeCount?: number
 }
 
 export interface PlaylistDetail {
@@ -49,7 +50,8 @@ export interface PlaylistComment {
     userAvatar: string | null
     content: string
     createTime: string
-    likeCount: number
+    likeCount: number
+    dislikeCount?: number
 }
 
 export interface PlaylistDetail {
@@ -69,7 +71,8 @@ export interface Comment {
     userAvatar: string | null
     content: string
     createTime: string
-    likeCount: number
+    likeCount: number
+    dislikeCount?: number
 }
 
 export interface SongDetail {

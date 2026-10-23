@@ -192,6 +192,16 @@ export const cancelLikeComment = (commentId: number) => {
   return http<Result>('patch', `/comment/cancelLikeComment/${commentId}`)
 }
 
+/** 倒赞（点踩）评论 */
+export const dislikeComment = (commentId: number) => {
+  return http<Result>('patch', `/comment/dislikeComment/${commentId}`)
+}
+
+/** 取消倒赞评论 */
+export const cancelDislikeComment = (commentId: number) => {
+  return http<Result>('patch', `/comment/cancelDislikeComment/${commentId}`)
+}
+
 /** 删除评论 */
 export const deleteComment = (commentId: number) => {
   return http<Result>('delete', `/comment/deleteComment/${commentId}`)

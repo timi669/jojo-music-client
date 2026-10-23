@@ -4,6 +4,7 @@ import {
   getFavoritePlaylists,
 } from '@/api/system'
 import coverImg from '@/assets/cover.png'
+import brandMark from '@/assets/brand/logo-B-mark.svg'
 import { ElNotification } from 'element-plus'
 
 // 路由
@@ -68,8 +69,11 @@ const getPlaylists = async () => {
         name: item.title,
         coverImgUrl: item.coverUrl ?? coverImg,
         creator: {
-          nickname: selected.value === 'favorite' ? 'Vibe Music' : 'Vibe Music',
-          avatarUrl: coverImg
+          // 歌单归属统一显示为本站品牌（此前误用了旧项目名 Vibe Music）。
+          // 原写法是两边同值的三元表达式，去掉冗余分支。
+          nickname: 'JOJO Music',
+          // 头像用品牌标记（金环嵌星），而非默认封面占位图。
+          avatarUrl: brandMark
         },
         playCount: 0,
         subscribedCount: 0

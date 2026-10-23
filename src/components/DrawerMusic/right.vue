@@ -1,10 +1,13 @@
 <script setup lang="ts">
 import type { SongDetail } from '@/api/interface'
-import { ref, inject, type Ref, computed } from 'vue'
+import { ref, reactive, inject, type Ref, computed } from 'vue'
 import { formatNumber } from '@/utils'
 import coverImg from '@/assets/cover.png'
 import {
   likeComment,
+  cancelLikeComment,
+  dislikeComment,
+  cancelDislikeComment,
   addSongComment,
   getSongDetail,
   deleteComment,
@@ -134,41 +137,109 @@ const formatDate = (date: string) => {
   })
 }
 
-// 处理点赞
+/**
+ * 处理点赞。
+ *
+ * 原实现每次点击都 +1，导致同一用户反复点击可以无限刷高点赞数。
+ * 现用组件内的"我已投票"集合做前端防重复：
+ * 同一评论只能点一次赞；再次点击视为取消。
+ *
+ * 说明：后端目前只有计数字段、没有按用户记录投票关系，
+ * 因此这里的约束是**界面层面**的（刷新后不再记忆）。
+ * 要做到跨设备、跨刷新都准确，需要新增"评论-用户投票"关联表，
+ * 这属于后续可选的增强，不在本次范围内。
+ */
 const handleLike = async (comment: any) => {
   if (!userStore.isLoggedIn) {
     ElMessage.warning('请先登录')
     return
   }
+  const id = comment.commentId
+  const alreadyLiked = myLikes.has(id)
 
   try {
-    // 调用点赞接口
-    const res = await likeComment(comment.commentId)
+    const res = alreadyLiked
+      ? await cancelLikeComment(id)
+      : await likeComment(id)
     if (res.code === 0) {
-      // 更新评论的点赞数量
-      if (songDetail.value && songDetail.value.comments) {
-        const updatedComments = songDetail.value.comments.map((item) => {
-          if (item.commentId === comment.commentId) {
-            return {
-              ...item,
-              likeCount: item.likeCount + 1,
-            }
-          }
-          return item
-        })
-
-        songDetail.value = {
-          ...songDetail.value,
-          comments: updatedComments,
+      if (alreadyLiked) {
+        myLikes.delete(id)
+      } else {
+        // 点赞与倒赞互斥：若之前倒赞过，先撤回
+        if (myDislikes.has(id)) {
+          myDislikes.delete(id)
+          await cancelDislikeComment(id)
         }
+        myLikes.add(id)
       }
-
-      ElMessage.success('点赞成功')
+      await refreshComment(comment.commentId)
+      ElMessage.success(alreadyLiked ? '已取消点赞' : '点赞成功')
     }
   } catch (error) {
-    ElMessage.error('点赞失败')
+    ElMessage.error(alreadyLiked ? '取消点赞失败' : '点赞失败')
   }
 }
+
+/**
+ * 处理倒赞（点踩）。与点赞逻辑对称且互斥。
+ */
+const handleDislike = async (comment: any) => {
+  if (!userStore.isLoggedIn) {
+    ElMessage.warning('请先登录')
+    return
+  }
+  const id = comment.commentId
+  const alreadyDisliked = myDislikes.has(id)
+
+  try {
+    const res = alreadyDisliked
+      ? await cancelDislikeComment(id)
+      : await dislikeComment(id)
+    if (res.code === 0) {
+      if (alreadyDisliked) {
+        myDislikes.delete(id)
+      } else {
+        // 点赞与倒赞互斥：若之前点赞过，先撤回
+        if (myLikes.has(id)) {
+          myLikes.delete(id)
+          await cancelLikeComment(id)
+        }
+        myDislikes.add(id)
+      }
+      await refreshComment(comment.commentId)
+      ElMessage.success(alreadyDisliked ? '已取消倒赞' : '已倒赞')
+    }
+  } catch (error) {
+    ElMessage.error(alreadyDisliked ? '取消倒赞失败' : '倒赞失败')
+  }
+}
+
+/**
+ * 重新拉取歌曲详情，使评论计数与后端保持一致。
+ *
+ * 为什么不在本地做 +1 / -1 之类的手工增减：
+ * 点赞与倒赞会互相影响（互斥时另一方要减 1），手工维护两套计数极易算错。
+ * 直接以服务端为准，逻辑简单且不会出现前后端数字不一致。
+ */
+const refreshComment = async (commentId: number) => {
+  const songId = songDetail.value?.songId
+  if (!songId) return
+  const res = await getSongDetail(songId)
+  if (res.code === 0 && res.data) {
+    songDetail.value = res.data as unknown as SongDetail
+  }
+  void commentId
+}
+
+/**
+ * 我已点赞 / 我已倒赞的评论 id（界面层面的互斥与防重复）。
+ *
+ * 用 reactive(Set) 而不是 ref(new Set())：
+ * 后者在模板里会被自动解包、在 script 里却仍是 Ref，
+ * 直接调 .has/.add 会报类型错误且行为不一致。
+ */
+const myLikes = reactive(new Set<number>())
+const myDislikes = reactive(new Set<number>())
 
 // 删除评论
 const handleDelete = async (comment: any) => {
@@ -296,9 +367,11 @@ const handleDelete = async (comment: any) => {
                     comment.username
                   }}</span>
                 </div>
-                <p class="text-sm mt-1 mb-2">{{ comment.content }}</p>
+                <p
+                  class="text-sm mt-1 mb-2 text-[hsl(222.2_84%_4.9%)] dark:text-[hsl(210_40%_98%)]"
+                >{{ comment.content }}</p>
                 <div
-                  class="flex items-center justify-between text-sm text-gray-400"
+                  class="flex items-center justify-between text-sm text-[hsl(215.4_16.3%_46.9%)] dark:text-[hsl(215_20.2%_65.1%)]"
                 >
                   <span class="text-xs">{{ comment.createTime }}</span>
                   <div class="flex items-center gap-4">
@@ -312,11 +385,21 @@ const handleDelete = async (comment: any) => {
                       <span>删除</span>
                     </button>
                     <button
-                      class="flex items-center gap-1 hover:text-gray-600"
+                      class="flex items-center gap-1 transition-colors"
+                      :class="myLikes.has(comment.commentId) ? 'text-[hsl(222.2_47.4%_11.2%)] dark:text-white font-medium' : 'hover:text-[hsl(222.2_47.4%_11.2%)] dark:hover:text-white'"
                       @click="handleLike(comment)"
                     >
                       <span>{{ formatNumber(comment.likeCount) }}</span>
                       <icon-material-symbols:thumb-up />
+                    </button>
+                    <!-- 倒赞（点踩）：与点赞互斥 -->
+                    <button
+                      class="flex items-center gap-1 transition-colors"
+                      :class="myDislikes.has(comment.commentId) ? 'text-red-500 font-medium' : 'hover:text-red-500'"
+                      @click="handleDislike(comment)"
+                    >
+                      <span>{{ formatNumber(comment.dislikeCount || 0) }}</span>
+                      <icon-material-symbols:thumb-down />
                     </button>
                   </div>
                 </div>
