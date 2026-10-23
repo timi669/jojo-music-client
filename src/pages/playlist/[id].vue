@@ -100,15 +100,13 @@ const handleComment = async () => {
     if (res.code === 0) {
       ElMessage.success('评论发布成功')
       commentContent.value = ''
-      // 重新获取歌单详情以更新评论列表
-      const detailRes = await getPlaylistDetail(playlistId)
-      if (detailRes.code === 0 && detailRes.data) {
-        const playlistData = detailRes.data as PlaylistDetail
-        playlistStore.setPlaylistInfo({
-          ...playlistStore.playlist!,
-          comments: playlistData.comments || []
-        })
-      }
+      /*
+       * 重新拉取歌单详情以更新评论列表。
+       *
+       * 必须同时更新 commentCount：页面标题显示的是该字段，
+       * 只更新 comments 会让"评论数"永远停在旧值（发布后仍显示 0）。
+       */
+      await refreshPlaylist()
     } else {
       ElMessage.error('评论发布失败')
     }
@@ -397,8 +395,15 @@ const handlePlayAll = async () => {
                     <div class="flex items-center gap-2">
                       <span class="text-sm font-medium text-brand">{{ comment.username }}</span>
                     </div>
-                    <p class="text-sm mt-1 mb-2 text-[hsl(222.2_84%_4.9%)] dark:text-[hsl(210_40%_98%)]">{{ comment.content }}</p>
-                    <div class="flex items-center justify-between text-sm text-[hsl(215.4_16.3%_46.9%)] dark:text-[hsl(215_20.2%_65.1%)]">
+                    <!--
+                        歌单页（非豁免区）**不硬编码颜色**，跟随壁纸/主题。
+                        使用 text-foreground / text-muted-foreground —— 这两个令牌
+                        正是 backgroundStore 依据壁纸明暗写入的，会自动变成
+                        深色或浅色，从而在任何壁纸上都保持可读。
+                        （播放页是豁免区、背景固定，才需要写死颜色；此处不能照搬。）
+                      -->
+                      <p class="text-sm mt-1 mb-2 text-foreground">{{ comment.content }}</p>
+                    <div class="flex items-center justify-between text-sm text-muted-foreground">
                       <span class="text-xs">{{ comment.createTime }}</span>
                       <div class="flex items-center gap-4">
                         <!-- 如果是用户自己的评论，显示删除按钮 -->
@@ -411,16 +416,16 @@ const handlePlayAll = async () => {
                         </button>
                         <button
                           class="flex items-center gap-1 mr-1 transition-colors"
-                          :class="myLikes.has(comment.commentId) ? 'text-[hsl(222.2_47.4%_11.2%)] dark:text-white font-medium' : 'hover:text-[hsl(222.2_47.4%_11.2%)] dark:hover:text-white'"
+                          :class="myLikes.has(comment.commentId) ? 'text-brand font-medium' : 'hover:text-brand'"
                           @click="handleLike(comment)"
                         >
                           <span>{{ formatNumber(comment.likeCount) }}</span>
                           <icon-material-symbols:thumb-up />
                         </button>
-                        <!-- 倒赞（点踩）：与点赞互斥 -->
+                        <!-- 倒赞（点踩）：与点赞互斥，同样跟随主题令牌 -->
                         <button
                           class="flex items-center gap-1 transition-colors"
-                          :class="myDislikes.has(comment.commentId) ? 'text-red-500 font-medium' : 'hover:text-red-500'"
+                          :class="myDislikes.has(comment.commentId) ? 'text-brand font-medium' : 'hover:text-brand'"
                           @click="handleDislike(comment)"
                         >
                           <span>{{ formatNumber(comment.dislikeCount || 0) }}</span>
@@ -433,7 +438,7 @@ const handlePlayAll = async () => {
                 <div class="border-b border-gray-300/70 mr-12"></div>
               </template>
             </div>
-            <div v-else class="text-center py-8 text-gray-500">
+            <div v-else class="text-center py-8 text-muted-foreground">
               <p>暂无评论，快来抢沙发吧~</p>
             </div>
           </div>
