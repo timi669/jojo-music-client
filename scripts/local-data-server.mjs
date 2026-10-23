@@ -194,19 +194,87 @@ function sendFile(req, res, filePath, mime) {
   res.setHeader('Content-Type', mime)
 
   if (range) {
-    const match = /bytes=(\d*)-(\d*)/.exec(range)
-    const start = match && match[1] ? Number(match[1]) : 0
-    const end = match && match[2] ? Number(match[2]) : stat.size - 1
+    /*
+     * Range 解析必须做完整的边界校验与钳制。
+     *
+     * 原实现的问题（播放器 seek 超界时可触发）：
+     * - start >= size 时不校验，createReadStream 会 emit error，
+     *   而该错误未被监听 → **uncaught exception 直接崩掉进程**；
+     * - 后缀写法 `bytes=-500`（取末尾 500 字节）语义被错误地当成 start=0；
+     * - end 超过 size-1 时不钳制，同样可能触发流错误；
+     * - start > end 时算出负的 Content-Length。
+     *
+     * 按 RFC 7233 处理：不合法时回 416 并带 Content-Range: bytes *\/size。
+     */
+    const match = /^bytes=(\d*)-(\d*)$/.exec(range.trim())
+    if (!match) {
+      res.writeHead(416, { 'Content-Range': `bytes */${stat.size}` })
+      res.end()
+      return
+    }
+
+    const hasStart = match[1] !== ''
+    const hasEnd = match[2] !== ''
+    let start
+    let end
+
+    if (!hasStart && hasEnd) {
+      // 后缀写法 `bytes=-N`：取最后 N 字节
+      const suffix = Number(match[2])
+      if (suffix <= 0) {
+        res.writeHead(416, { 'Content-Range': `bytes */${stat.size}` })
+        res.end()
+        return
+      }
+      start = Math.max(0, stat.size - suffix)
+      end = stat.size - 1
+    } else {
+      start = hasStart ? Number(match[1]) : 0
+      end = hasEnd ? Number(match[2]) : stat.size - 1
+      // 钳制到文件范围内
+      end = Math.min(end, stat.size - 1)
+    }
+
+    // 起点越界或区间无效 → 416（而不是让流崩掉进程）
+    if (
+      !Number.isFinite(start) ||
+      !Number.isFinite(end) ||
+      start < 0 ||
+      start >= stat.size ||
+      end < start
+    ) {
+      res.writeHead(416, { 'Content-Range': `bytes */${stat.size}` })
+      res.end()
+      return
+    }
+
     res.writeHead(206, {
       'Content-Range': `bytes ${start}-${end}/${stat.size}`,
       'Content-Length': end - start + 1,
     })
-    fs.createReadStream(filePath, { start, end }).pipe(res)
+
+    const stream = fs.createReadStream(filePath, { start, end })
+    // 必须监听 error：文件在 stat 之后被删除、或读取中途出错时，
+    // 未捕获的流错误会终止整个进程
+    stream.on('error', () => {
+      if (!res.headersSent) {
+        res.writeHead(500, { 'Content-Type': 'text/plain; charset=utf-8' })
+      }
+      res.end()
+    })
+    stream.pipe(res)
     return
   }
 
   res.writeHead(200, { 'Content-Length': stat.size })
-  fs.createReadStream(filePath).pipe(res)
+  const full = fs.createReadStream(filePath)
+  full.on('error', () => {
+    if (!res.headersSent) {
+      res.writeHead(500, { 'Content-Type': 'text/plain; charset=utf-8' })
+    }
+    res.end()
+  })
+  full.pipe(res)
 }
 
 function ok(data) {
@@ -383,7 +451,27 @@ async function handleApi(req, res, url) {
     return
   }
 
-  sendJson(res, { code: 0, message: 'local stub', data: null })
+  /*
+   * 兜底：未实现的端点。
+   *
+   * 原实现返回 `{ code: 0, message: 'local stub', data: null }`（HTTP 200），
+   * 即**伪装成功** —— 前端看到 code:0 会继续按成功路径处理，
+   * 拿到 data:null 后可能在无提示的情况下出现 undefined 访问或空列表，
+   * 排查时极难定位（看起来"接口是通的"）。
+   *
+   * 现改为：明确返回 501 与 code:-1，并在服务端日志打印未实现路径，
+   * 让"这个端点在本地服务里没有"这件事**可见**。
+   */
+  console.warn(`[local-data-server] 未实现的端点: ${method} ${pathname}`)
+  sendJson(
+    res,
+    {
+      code: -1,
+      message: `本地演示服务未实现该端点: ${method} ${pathname}`,
+      data: null,
+    },
+    501
+  )
 }
 
 if (!fs.existsSync(DATA_DIR)) {
