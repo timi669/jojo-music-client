@@ -84,25 +84,43 @@ const handleSubCategoryClick = (id: string, index: number) => {
   handleGetArtistList()
 }
 
+/**
+ * 拉取歌手列表。
+ *
+ * 合并了原先重复的 handleGetArtistList / handleSearch —— 两者逻辑 95% 相同，
+ * 唯一差别是是否带上搜索词；而独立的那份把 `artistName` **硬编码为 null**，
+ * 导致"搜索后翻页"会静默退回全量列表（total 也随之错乱）。
+ * 现在统一以 `searchKeyword` 为准，翻页/改每页条数都会保留搜索条件。
+ */
 const handleGetArtistList = () => {
   const params = {
     pageNum: currentPage.value,
     pageSize: pageSize.value,
-    artistName: null,
-    gender: selectedGender.value === '-1' ? null : categories.value[0].subCategories.find(item => item.id === selectedGender.value)?.value,
-    area: selectedArea.value === '-1' ? null : categories.value[1].subCategories.find(item => item.id === selectedArea.value)?.value
+    artistName: searchKeyword.value.trim() || null,
+    gender:
+      selectedGender.value === '-1'
+        ? null
+        : categories.value[0].subCategories.find(
+            (item) => item.id === selectedGender.value
+          )?.value,
+    area:
+      selectedArea.value === '-1'
+        ? null
+        : categories.value[1].subCategories.find(
+            (item) => item.id === selectedArea.value
+          )?.value,
   }
 
   getAllArtists(params).then((res) => {
     if (res.code === 0 && res.data) {
       const items = res.data.items || []
-      artistList.value = items.map(item => ({
+      artistList.value = items.map((item) => ({
         artistId: item.artistId,
         name: item.artistName,
         picUrl: item.avatar || defaultArtistAvatar,
         area: formatArea(item.area),
         gender: item.gender,
-        alias: []
+        alias: [],
       }))
       total.value = res.data.total || 0
       state.total = res.data.total || 0
@@ -116,36 +134,10 @@ const handleGetArtistList = () => {
   })
 }
 
+/** 点击搜索：回到第一页再查（否则会停在旧页码上导致结果为空） */
 const handleSearch = () => {
-  const params = {
-    pageNum: currentPage.value,
-    pageSize: pageSize.value,
-    artistName: searchKeyword.value || null,
-    gender: selectedGender.value === '-1' ? null : categories.value[0].subCategories.find(item => item.id === selectedGender.value)?.value,
-    area: selectedArea.value === '-1' ? null : categories.value[1].subCategories.find(item => item.id === selectedArea.value)?.value
-  }
-
-  getAllArtists(params).then((res) => {
-    if (res.code === 0 && res.data) {
-      const items = res.data.items || []
-      artistList.value = items.map(item => ({
-        artistId: item.artistId,
-        name: item.artistName,
-        picUrl: item.avatar || defaultArtistAvatar,
-        area: formatArea(item.area),
-        gender: item.gender,
-        alias: []
-      }))
-      total.value = res.data.total || 0
-      state.total = res.data.total || 0
-    } else {
-      ElNotification({
-        type: 'error',
-        message: '获取歌手列表失败',
-        duration: 2000,
-      })
-    }
-  })
+  currentPage.value = 1
+  handleGetArtistList()
 }
 
 const handleReset = () => {

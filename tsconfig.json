@@ -34,11 +34,18 @@
     "forceConsistentCasingInFileNames": true, // 不允许对同一个文件使用不一致格式的引用
     "noUnusedLocals": true, //报告未使用的局部变量的错误
     "noUnusedParameters": true, //报告函数中未使用参数的错误
-    "noFallthroughCasesInSwitch": true //确保switch语句中的任何非空情况都包含
+    "noFallthroughCasesInSwitch": true, //确保switch语句中的任何非空情况都包含
+    /*
+     * 必须放在 compilerOptions 内，且为**数组**。
+     * 原写法是写在 compilerOptions 之外、且值为单个含逗号的字符串
+     * `["vite,client"]` —— 双重失效：字段位置不对 + 值不是两个元素，
+     * 结果是 vite/client 的类型从未被加载，import.meta.env 无类型提示。
+     *
+     * 关于 node：vite.config.ts 用到 process.cwd()，这里显式声明依赖，
+     * 而不是依赖隐式的类型传递链（实测即使不写也能通过，但显式更稳妥）。
+     */
+    "types": ["vite/client", "node"]
   },
-  "types": [
-    "vite,client",
-  ],
   "include": [
     "src/**/*.ts",
     "src/**/*.d.ts",
