@@ -3,8 +3,8 @@
  * Serves files from the local media folder and answers the APIs
  * the Vue client already calls on http://localhost:8080.
  *
- * 注：VIBE_MUSIC_DATA 是磁盘上的既有目录名，改品牌名时不要动它，
- * 否则脚本找不到媒体文件。
+ * 媒体目录由 JOJO_MUSIC_DATA 环境变量指定，默认 D:\BaiduNetdiskDownload\jojo-music-data。
+ * 该目录与后端 MinIO 的 bucket 无关，是本地开发用的原始素材库。
  */
 import http from 'node:http'
 import fs from 'node:fs'
@@ -13,7 +13,7 @@ import { URL } from 'node:url'
 
 const PORT = Number(process.env.LOCAL_DATA_PORT || 8080)
 const DATA_DIR = path.resolve(
-  process.env.VIBE_MUSIC_DATA || 'D:\\BaiduNetdiskDownload\\vibe-music-data'
+  process.env.JOJO_MUSIC_DATA || 'D:\\BaiduNetdiskDownload\\jojo-music-data'
 )
 const PUBLIC_ORIGIN = `http://localhost:${PORT}`
 
