@@ -69,7 +69,7 @@ const getPlaylists = async () => {
         name: item.title,
         coverImgUrl: item.coverUrl ?? coverImg,
         creator: {
-          // 歌单归属统一显示为本站品牌（此前误用了旧项目名 Vibe Music）。
+          // 歌单归属统一显示为本站品牌。
           // 原写法是两边同值的三元表达式，去掉冗余分支。
           nickname: 'JOJO Music',
           // 头像用品牌标记（金环嵌星），而非默认封面占位图。
