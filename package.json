@@ -8,6 +8,7 @@
     "name": "timi669",
     "email": "19491001zxgw@gmail.com"
   },
+  "license": "MIT",
   "scripts": {
     "dev": "vite",
     "data": "node scripts/local-data-server.mjs",
